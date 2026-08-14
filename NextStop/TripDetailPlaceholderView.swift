@@ -103,6 +103,7 @@ class RouteViewModel {
             } catch {
                 // Task been canceled
                 print("Task is canceled or interupted")
+                print("something")
             }
         }
     }
