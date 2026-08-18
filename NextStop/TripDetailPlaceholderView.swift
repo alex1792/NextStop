@@ -15,11 +15,12 @@ class RouteViewModel {
     var polylines: [MKPolyline] = []
     var totalMapRect: MKMapRect = .null
     var isLoading = false
+    var ETA: TimeInterval = 0
     
     // Tracking and Canceling the tasks in queue
     private var routingTask: Task<Void, Never>?
     
-    func calculateRoutes(from coordinates: [CLLocationCoordinate2D], transportType: MKDirectionsTransportType = .automobile) {
+    func calculateRoutes(from coordinates: [CLLocationCoordinate2D], stopsNames: [String], transportType: MKDirectionsTransportType = .automobile) {
         guard coordinates.count >= 2 else {
             self.polylines = []
             self.totalMapRect = .null
@@ -42,19 +43,20 @@ class RouteViewModel {
                 let start = clock.now
                 
                 // 4. pass the 0.5s sleep, means user stop editing. Starting sending request for directions
-                let fetchedPolylines: [MKPolyline] = await withTaskGroup(of: MKPolyline?.self) { group in
+                struct SegmentResult {
+                    let polyline: MKPolyline?
+                    let eta: TimeInterval
+                }
+                
+                let results: [SegmentResult] = await withTaskGroup(of: SegmentResult?.self) { group in
                     for i in 1..<coordinates.count {
-                        let sourceCoor = coordinates[i - 1]
-                        let destCoor = coordinates[i]
+                        let MKDInstance = self.getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType)
                         
                         group.addTask {
-                            let sourceItem = MKMapItem(location: CLLocation(latitude: sourceCoor.latitude, longitude: sourceCoor.longitude), address: nil)
-                            let endItem = MKMapItem(location: CLLocation(latitude: destCoor.latitude, longitude: destCoor.longitude), address: nil)
+                            if transportType == .transit {
+                                return nil
+                            }
                             
-                            let request = MKDirections.Request()
-                            request.source = sourceItem
-                            request.destination = endItem
-                            request.transportType = transportType
                             // check TaskGroup internally, if its canceled, then terminate
                             if Task.isCancelled { return nil }
                             
@@ -62,17 +64,20 @@ class RouteViewModel {
                             let start1 = clock1.now
                             
                             do {
-                                let response = try await MKDirections(request: request).calculate()
+                                let response = try await MKDInstance.calculate()
                                 let elapsed1 = start1.duration(to: clock1.now)
-                                print("Leg \(i) took: \(elapsed1)")
-                                return response.routes.first?.polyline
+                                let eta = try await MKDInstance.calculateETA().expectedTravelTime
+                                print("Segment \(i) took: \(elapsed1)")
+                                
+                                return SegmentResult(polyline: response.routes.first?.polyline, eta: eta)
                             } catch {
+                                print("MKDirections Request failed: \(error)")
                                 return nil
                             }
                         }
                     }
                     
-                    var results = [MKPolyline]()
+                    var results = [SegmentResult]()
                     for await polyline in group {
                         if let polyline { results.append(polyline) }
                     }
@@ -81,31 +86,101 @@ class RouteViewModel {
                 
                 // 5. Maker sure before updating UI, the task is not canceled at the last minute
                 guard !Task.isCancelled else { return }
+                
+                //  check if transport type is .transit, then launch apple maps
+                if transportType == .transit,
+                   let sourceCoor = coordinates.first,
+                   let destCoor = coordinates.last
+                {
+                    let sourceItem = self.makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: stopsNames.first)
+                    
+                    let destItem = self.makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: stopsNames.last)
+            
+                    //  calculate ETA
+                    self.ETA = await self.getETAs(coordinate: coordinates, stops_names: stopsNames, transport_type: transportType)
+                    
+                    //  launch apple map
+                    self.launchNativeAppleMaps(from: sourceItem, to: destItem)
+                    
+                    self.isLoading = false
+                    return
+                }
 
-                if !fetchedPolylines.isEmpty {
+                self.polylines = results.compactMap { $0.polyline }
+                self.ETA = results.reduce(0) { $0 + $1.eta }
+                if !self.polylines.isEmpty {
                     // use the first route's boundingMapRect as reference
-                    var rect = fetchedPolylines[0].boundingMapRect
+                    var rect = self.polylines[0].boundingMapRect
                     
                     // starting from 2nd route, then keep merging
-                    for i in 1..<fetchedPolylines.count {
-                        rect = rect.union(fetchedPolylines[i].boundingMapRect)
+                    for i in 1..<self.polylines.count {
+                        rect = rect.union(self.polylines[i].boundingMapRect)
                     }
                     self.totalMapRect = rect
                 }
 
-                self.polylines = fetchedPolylines
                 self.isLoading = false
                 
                 let elapse = start.duration(to: clock.now)
                 print("Caluculatin Route took: \(elapse)")
+                print("ETA: \(Duration.seconds(self.ETA).formatted(.time(pattern: .hourMinute)))")
                 
                 
             } catch {
                 // Task been canceled
                 print("Task is canceled or interupted")
-                print("something")
             }
         }
+    }
+    
+    private func getETAs(coordinate coordinates: [CLLocationCoordinate2D], stops_names stopsNames: [String], transport_type transportType: MKDirectionsTransportType) async -> TimeInterval {
+        var eta: TimeInterval = 0
+        for i in 1..<coordinates.count {
+            let MKDInstance = self.getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType)
+            
+            do {
+//                let MKDInstance = MKDirections(request: request)
+                let seg_eta = try await MKDInstance.calculateETA().expectedTravelTime
+                eta += seg_eta
+                print("Segment ETA: \(seg_eta)")
+            } catch {
+                print("MKDirections Request failed: \(error)")
+            }
+        }
+        return eta
+    }
+    
+    private func getMKDirectionsRequest(source_coor sourceCoor: CLLocationCoordinate2D, destinatin_coor destCoor: CLLocationCoordinate2D, source_name sourceName: String, destination_name destName: String, transport_type transportType: MKDirectionsTransportType) -> MKDirections {
+        let sourceItem = self.makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: sourceName)
+        
+        let destItem = self.makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: destName)
+        
+        
+        let request = MKDirections.Request()
+        request.source = sourceItem
+        request.destination = destItem
+        request.transportType = transportType
+        
+        return MKDirections(request: request)
+    }
+    
+    private func makeMKMapItem(location_coordinate coordinate: CLLocationCoordinate2D, location_address address: MKAddress?, location_name name: String?) -> MKMapItem {
+        let item = MKMapItem(location: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude), address: address)
+        item.name = name
+        return item
+    }
+    
+    private func launchNativeAppleMaps(from sourceItem: MKMapItem, to destItem: MKMapItem) {
+        //  since Apple does not expose the entire transit polyline
+        //  we have two solutions:
+        //  1). shortcut to apple maps
+        //  2). use google maps to get the polyline (Charges $$$$)
+
+        // Set the launch options to enforce public transit
+        let launchOptions = [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeTransit]
+
+        // Opens the native Apple Maps app with the calculated transit route
+        MKMapItem.openMaps(with: [sourceItem, destItem], launchOptions: launchOptions)
     }
 }
 
@@ -124,6 +199,10 @@ struct TripDetailPlaceholderView: View {
 
     private var coordinates: [CLLocationCoordinate2D] {
         stops.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+    }
+    
+    private var stopsNames: [String] {
+        stops.map { $0.name }
     }
     
     @State private var viewModel = RouteViewModel()
@@ -184,8 +263,11 @@ struct TripDetailPlaceholderView: View {
                         
                     )
                         .frame(height: 240)
+                    
 
                     List {
+                        Text("ETA: \(Duration.seconds(viewModel.ETA).formatted(.time(pattern: .hourMinute)))")
+                        
                         if editMode == .active {
                             ForEach(stops) { stop in
                                 NavigationLink {
@@ -223,14 +305,14 @@ struct TripDetailPlaceholderView: View {
                     .environment(\.editMode, $editMode)
                     .onChange(of: stops) { oldStops, newStops in
                         // 直接傳入轉換後的經緯度，ViewModel 會自己處理防抖動排隊
-                        viewModel.calculateRoutes(from: coordinates, transportType: transportType)
+                        viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
                     }
                     .onChange(of: transportType) {
-                        viewModel.calculateRoutes(from: coordinates, transportType: transportType)
+                        viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
                     }
                     .onAppear {
                         // 首次進入頁面直接計算（不需防抖動，直接觸發）
-                        viewModel.calculateRoutes(from: coordinates, transportType: transportType)
+                        viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
                     }
                 }
             }
