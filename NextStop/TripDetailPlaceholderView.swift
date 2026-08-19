@@ -50,7 +50,7 @@ class RouteViewModel {
                 
                 let results: [SegmentResult] = await withTaskGroup(of: SegmentResult?.self) { group in
                     for i in 1..<coordinates.count {
-                        let MKDInstance = getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType)
+                        let MKDInstance = getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType, time_interval: 0)
                         
                         group.addTask {
                             if transportType == .transit {
@@ -88,19 +88,10 @@ class RouteViewModel {
                 guard !Task.isCancelled else { return }
                 
                 //  check if transport type is .transit, then launch apple maps
-                if transportType == .transit,
-                   let sourceCoor = coordinates.first,
-                   let destCoor = coordinates.last
+                if transportType == .transit
                 {
-                    let sourceItem = makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: stopsNames.first)
-                    
-                    let destItem = makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: stopsNames.last)
-            
                     //  calculate ETA
                     self.ETA = await getETAs(coordinate: coordinates, stops_names: stopsNames, transport_type: transportType)
-                    
-                    //  launch apple map
-                    launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportType)
                     
                     self.isLoading = false
                     return
@@ -216,7 +207,7 @@ struct TripDetailPlaceholderView: View {
                     )
                         .frame(height: 240)
                     
-                    ETAHeaderView(eta: self.viewModel.ETA, isLoading: self.viewModel.isLoading, transportType: self.transportType)
+                    ETAHeaderView(eta: self.viewModel.ETA, isLoading: self.viewModel.isLoading, transportType: $transportType)
                     
                     TabView(selection: $selection) {
                         Tab("Itinerary", systemImage:"text.page.fill", value: 0){
@@ -226,15 +217,15 @@ struct TripDetailPlaceholderView: View {
                         }
                         
                         Tab("Segments", systemImage: "map.fill", value: 1){
+                            Spacer().frame(height: 12)
+                            
                             SegmentNavigationView(coordinates: self.coordinates, stopsNames: self.stopsNames, transportType: self.transportType)
                         }
                     }
-                    
-                    
                 }
             }
         }
-        .navigationTitle(selectedDay != nil ? "\(trip.title) · Day \(selectedDay!)" : trip.title)
+        .navigationTitle(selectedDay != nil ? "Day \(selectedDay!)" : trip.title)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
@@ -261,16 +252,6 @@ struct TripDetailPlaceholderView: View {
         }
         .safeAreaInset(edge: .bottom) {
             HStack {
-                Button {
-                    transportType = nextTransportType(for: transportType)
-                } label: {
-                    Image(systemName: symbolName(for: transportType))
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(Color.accentColor))
-                }
-                
                 Spacer()
                 
                 Button {
@@ -285,17 +266,6 @@ struct TripDetailPlaceholderView: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
-        }
-    }
-    
-    private func nextTransportType(for type: MKDirectionsTransportType) -> MKDirectionsTransportType {
-        switch type {
-        case .automobile:   return .walking
-        case .walking:      return .cycling
-        case .cycling:      return .transit
-        case .transit:      return .any
-        case .any:          return .automobile
-        default:            return .automobile
         }
     }
     
@@ -458,31 +428,87 @@ private struct PolylineMapView: UIViewRepresentable {
 private struct ETAHeaderView: View {
     let eta: TimeInterval
     let isLoading: Bool
-    let transportType: MKDirectionsTransportType
+    @Binding var transportType: MKDirectionsTransportType
+    
+    private var selectionBinding: Binding<Int> {
+        Binding<Int>(
+            get: {
+                switch transportType {
+                case .automobile: return 0
+                case .walking: return 1
+                case .cycling: return 2
+                case .transit: return 3
+                default: return 0
+                }
+            },
+            set: { newValue in
+                switch newValue {
+                case 0: transportType = .automobile
+                case 1: transportType = .walking
+                case 2: transportType = .cycling
+                case 3: transportType = .transit
+                default: transportType = .automobile
+                }
+            }
+        )
+    }
     
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbolName(for: transportType))
-                .foregroundStyle(.secondary)
-            
-            if isLoading {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                Text("Calculating")
-            } else {
-                Text("ETA")
-                    .foregroundStyle(.secondary)
-                Text(Duration.seconds(self.eta).formatted(.time(pattern: .hourMinute)))
+        VStack(spacing: 0) {
+            Picker("Travel Mode", selection: selectionBinding) {
+                Image(systemName: symbolName(for: .automobile)).tag(0)
+                Image(systemName: symbolName(for: .walking)).tag(1)
+                Image(systemName: symbolName(for: .cycling)).tag(2)
+                Image(systemName: symbolName(for: .transit)).tag(3)
             }
-            
-            Spacer()
+            .pickerStyle(.segmented) // 💡 讓它變成完全扁平的橫向切換鈕
+            .padding(.horizontal, 8)
+            .padding(.top, 12)       // 調整留白，避免頂部過擠
+            .padding(.bottom, 8)
+
+            Divider()
+                .padding(.horizontal, 8)
+
+            // ETA row beneath the tabs
+            HStack(spacing: 6) {
+                if isLoading {
+                    ProgressView().progressViewStyle(.circular)
+                    Text("Calculating")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("ETA")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text(Duration.seconds(self.eta).formatted(.time(pattern: .hourMinute)))
+                        .font(.footnote)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .padding(.bottom, 0)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
+        // Make the header sit flush against the map: no extra top padding
+        .padding(.top, 0)
+        .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(.ultraThinMaterial)
         )
+        // Clip content to the rounded shape so it doesn't look like it's floating/overflowing
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+    
+    private func nextTransportType(for type: MKDirectionsTransportType) -> MKDirectionsTransportType {
+        switch type {
+        case .automobile:   return .walking
+        case .walking:      return .cycling
+        case .cycling:      return .transit
+        case .transit:      return .any
+        case .any:          return .automobile
+        default:            return .automobile
+        }
     }
 }
 
@@ -510,7 +536,7 @@ private struct SegmentNavigationView: View {
                         toName: destName,
                         transportType: transportType
                     )
-
+                    
                 }
             }
         }
@@ -583,6 +609,9 @@ private struct SegmentCard: View {
         .task(id: transportType) {
             await loadETA()
         }
+        
+        Divider()
+            .padding(.horizontal, 10)
     }
     
     // 將 async ETA 載入封裝在子 view 內
@@ -620,7 +649,7 @@ func symbolName(for type: MKDirectionsTransportType) -> String {
     }
 }
 
-func getMKDirectionsRequest(source_coor sourceCoor: CLLocationCoordinate2D, destinatin_coor destCoor: CLLocationCoordinate2D, source_name sourceName: String, destination_name destName: String, transport_type transportType: MKDirectionsTransportType) -> MKDirections {
+func getMKDirectionsRequest(source_coor sourceCoor: CLLocationCoordinate2D, destinatin_coor destCoor: CLLocationCoordinate2D, source_name sourceName: String, destination_name destName: String, transport_type transportType: MKDirectionsTransportType, time_interval timeInterval: TimeInterval) -> MKDirections {
     let sourceItem = makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: sourceName)
     
     let destItem = makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: destName)
@@ -630,6 +659,7 @@ func getMKDirectionsRequest(source_coor sourceCoor: CLLocationCoordinate2D, dest
     request.source = sourceItem
     request.destination = destItem
     request.transportType = transportType
+    request.departureDate = Date().addingTimeInterval(timeInterval)
     
     return MKDirections(request: request)
 }
@@ -637,7 +667,7 @@ func getMKDirectionsRequest(source_coor sourceCoor: CLLocationCoordinate2D, dest
 func getETAs(coordinate coordinates: [CLLocationCoordinate2D], stops_names stopsNames: [String], transport_type transportType: MKDirectionsTransportType) async -> TimeInterval {
     var eta: TimeInterval = 0
     for i in 1..<coordinates.count {
-        let MKDInstance = getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType)
+        let MKDInstance = getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType, time_interval: eta)
         
         do {
             let seg_eta = try await MKDInstance.calculateETA().expectedTravelTime
@@ -651,7 +681,7 @@ func getETAs(coordinate coordinates: [CLLocationCoordinate2D], stops_names stops
 }
 
 func getETA(source_coor sourceCoor: CLLocationCoordinate2D, dest_coor destCoor: CLLocationCoordinate2D, source_name sourceName: String, dest_name destName: String, transport_type transportType: MKDirectionsTransportType) async -> TimeInterval {
-    let MKDInstance = getMKDirectionsRequest(source_coor: sourceCoor, destinatin_coor: destCoor, source_name: sourceName, destination_name: destName, transport_type: transportType)
+    let MKDInstance = getMKDirectionsRequest(source_coor: sourceCoor, destinatin_coor: destCoor, source_name: sourceName, destination_name: destName, transport_type: transportType, time_interval: 0)
     do {
         let eta = try await MKDInstance.calculateETA().expectedTravelTime
         return eta
