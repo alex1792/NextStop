@@ -50,7 +50,7 @@ class RouteViewModel {
                 
                 let results: [SegmentResult] = await withTaskGroup(of: SegmentResult?.self) { group in
                     for i in 1..<coordinates.count {
-                        let MKDInstance = self.getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType)
+                        let MKDInstance = getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType)
                         
                         group.addTask {
                             if transportType == .transit {
@@ -92,15 +92,15 @@ class RouteViewModel {
                    let sourceCoor = coordinates.first,
                    let destCoor = coordinates.last
                 {
-                    let sourceItem = self.makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: stopsNames.first)
+                    let sourceItem = makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: stopsNames.first)
                     
-                    let destItem = self.makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: stopsNames.last)
+                    let destItem = makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: stopsNames.last)
             
                     //  calculate ETA
-                    self.ETA = await self.getETAs(coordinate: coordinates, stops_names: stopsNames, transport_type: transportType)
+                    self.ETA = await getETAs(coordinate: coordinates, stops_names: stopsNames, transport_type: transportType)
                     
                     //  launch apple map
-                    self.launchNativeAppleMaps(from: sourceItem, to: destItem)
+                    launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportType)
                     
                     self.isLoading = false
                     return
@@ -132,56 +132,6 @@ class RouteViewModel {
             }
         }
     }
-    
-    private func getETAs(coordinate coordinates: [CLLocationCoordinate2D], stops_names stopsNames: [String], transport_type transportType: MKDirectionsTransportType) async -> TimeInterval {
-        var eta: TimeInterval = 0
-        for i in 1..<coordinates.count {
-            let MKDInstance = self.getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType)
-            
-            do {
-//                let MKDInstance = MKDirections(request: request)
-                let seg_eta = try await MKDInstance.calculateETA().expectedTravelTime
-                eta += seg_eta
-                print("Segment ETA: \(seg_eta)")
-            } catch {
-                print("MKDirections Request failed: \(error)")
-            }
-        }
-        return eta
-    }
-    
-    private func getMKDirectionsRequest(source_coor sourceCoor: CLLocationCoordinate2D, destinatin_coor destCoor: CLLocationCoordinate2D, source_name sourceName: String, destination_name destName: String, transport_type transportType: MKDirectionsTransportType) -> MKDirections {
-        let sourceItem = self.makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: sourceName)
-        
-        let destItem = self.makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: destName)
-        
-        
-        let request = MKDirections.Request()
-        request.source = sourceItem
-        request.destination = destItem
-        request.transportType = transportType
-        
-        return MKDirections(request: request)
-    }
-    
-    private func makeMKMapItem(location_coordinate coordinate: CLLocationCoordinate2D, location_address address: MKAddress?, location_name name: String?) -> MKMapItem {
-        let item = MKMapItem(location: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude), address: address)
-        item.name = name
-        return item
-    }
-    
-    private func launchNativeAppleMaps(from sourceItem: MKMapItem, to destItem: MKMapItem) {
-        //  since Apple does not expose the entire transit polyline
-        //  we have two solutions:
-        //  1). shortcut to apple maps
-        //  2). use google maps to get the polyline (Charges $$$$)
-
-        // Set the launch options to enforce public transit
-        let launchOptions = [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeTransit]
-
-        // Opens the native Apple Maps app with the calculated transit route
-        MKMapItem.openMaps(with: [sourceItem, destItem], launchOptions: launchOptions)
-    }
 }
 
 
@@ -211,6 +161,8 @@ struct TripDetailPlaceholderView: View {
     @State private var pendingSelectedPlace: MKMapItem?
     @State private var editMode: EditMode = .inactive
     @State private var transportType: MKDirectionsTransportType = .automobile
+    
+    @State private var selection: Int = 0
     
     init(trip: Trip, selectedDay: Int? = nil) {
         self.trip = trip
@@ -264,56 +216,21 @@ struct TripDetailPlaceholderView: View {
                     )
                         .frame(height: 240)
                     
-
-                    List {
-                        Text("ETA: \(Duration.seconds(viewModel.ETA).formatted(.time(pattern: .hourMinute)))")
+                    ETAHeaderView(eta: self.viewModel.ETA, isLoading: self.viewModel.isLoading, transportType: self.transportType)
+                    
+                    TabView(selection: $selection) {
+                        Tab("Itinerary", systemImage:"text.page.fill", value: 0){
+                            ItineraryListView(stops: stops, editMode: $editMode, coordinates: coordinates, stopsNames: stopsNames, transportType: transportType, onRecalculate: {
+                                viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
+                            }, onDelete: deleteStop, selectedDay: selectedDay)
+                        }
                         
-                        if editMode == .active {
-                            ForEach(stops) { stop in
-                                NavigationLink {
-                                    StopDetailView(stop: stop)
-                                } label: {
-                                    Text(stop.name)
-                                        .font(.caption)
-                                }
-                            }
-                            .onDelete { indexSet in
-                                guard editMode == .active else { return }
-                                deleteStop(offsets: indexSet)
-                            }
-                            .onMove { indexSet, destination in
-                                guard editMode == .active else { return }
-                                var newOrder = Array(stops)
-                                newOrder.move(fromOffsets: indexSet, toOffset: destination)
-                                for (idx, stop) in newOrder.enumerated() {
-                                    if stop.orderIndex != idx {
-                                        stop.orderIndex = idx
-                                    }
-                                }
-                            }
-                        } else {
-                            ForEach(stops) { stop in
-                                NavigationLink {
-                                    StopDetailView(stop: stop)
-                                } label: {
-                                    Text(stop.name)
-                                        .font(.caption)
-                                }
-                            }
+                        Tab("Segments", systemImage: "map.fill", value: 1){
+                            SegmentNavigationView(coordinates: self.coordinates, stopsNames: self.stopsNames, transportType: self.transportType)
                         }
                     }
-                    .environment(\.editMode, $editMode)
-                    .onChange(of: stops) { oldStops, newStops in
-                        // 直接傳入轉換後的經緯度，ViewModel 會自己處理防抖動排隊
-                        viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
-                    }
-                    .onChange(of: transportType) {
-                        viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
-                    }
-                    .onAppear {
-                        // 首次進入頁面直接計算（不需防抖動，直接觸發）
-                        viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
-                    }
+                    
+                    
                 }
             }
         }
@@ -342,42 +259,32 @@ struct TripDetailPlaceholderView: View {
                 
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            Button(action: { showingAddStop = true }) {
-                Image(systemName: "plus")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 60, height:60)
-                    .background(Circle().fill(Color.accentColor))
-
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Button {
+                    transportType = nextTransportType(for: transportType)
+                } label: {
+                    Image(systemName: symbolName(for: transportType))
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 60, height: 60)
+                        .background(Circle().fill(Color.accentColor))
+                }
+                
+                Spacer()
+                
+                Button {
+                    showingAddStop = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 60, height:60)
+                        .background(Circle().fill(Color.accentColor))
+                }
             }
-            .padding(.trailing, 24)
-            .padding(.bottom, 24)
-        }
-        .overlay(alignment: .bottomLeading) {
-            Button(action: {transportType = nextTransportType(for: transportType)}) {
-                Image(systemName: symbolName(for: transportType))
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 60, height: 60)
-                    .background(Circle().fill(Color.accentColor))
-                    
-            }
-            .padding(.leading, 24)
-            .padding(.bottom, 24)
-        }
-
-        
-    }
-    
-    private func symbolName(for type: MKDirectionsTransportType) -> String {
-        switch type {
-        case .automobile:   return "car.fill"
-        case .walking:      return "figure.walk"
-        case .cycling:      return "bicycle"
-        case .transit:      return "bus.fill"
-        case .any:          return "infinity"
-        default:            return "car.fill"
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
         }
     }
     
@@ -410,10 +317,6 @@ struct TripDetailPlaceholderView: View {
         
     }
     
-    private func addStop() {
-        addStop(forDay: selectedDay ?? 0)
-    }
-    
     private func deleteStop(offsets: IndexSet) {
         withAnimation {
             for index in offsets{
@@ -428,6 +331,62 @@ struct TripDetailPlaceholderView: View {
             }
         }
     }
+}
+
+private struct ItineraryListView: View {
+    let stops: [Stop]
+    @Binding var editMode: EditMode
+    let coordinates: [CLLocationCoordinate2D]
+    let stopsNames: [String]
+    let transportType: MKDirectionsTransportType
+    let onRecalculate: () -> Void
+    let onDelete: (IndexSet) -> Void
+    
+    let selectedDay: Int?
+    
+    var body: some View {
+        List {
+            if editMode == .active {
+                ForEach(stops) { stop in
+                    NavigationLink {
+                        StopDetailView(stop: stop)
+                    } label: {
+                        Text(stop.name)
+                            .font(.caption)
+                    }
+                }
+                .onDelete { indexSet in
+                    guard editMode == .active else { return }
+                    onDelete(indexSet)
+                }
+                .onMove { indexSet, destination in
+                    guard editMode == .active else { return }
+                    var newOrder = Array(stops)
+                    newOrder.move(fromOffsets: indexSet, toOffset: destination)
+                    for (idx, stop) in newOrder.enumerated() {
+                        if stop.orderIndex != idx {
+                            stop.orderIndex = idx
+                        }
+                    }
+                }
+            } else {
+                ForEach(stops) { stop in
+                    NavigationLink {
+                        StopDetailView(stop: stop)
+                    } label: {
+                        Text(stop.name)
+                            .font(.caption)
+                    }
+                }
+            }
+        }
+        .environment(\.editMode, $editMode)
+        .onChange(of: stops) { _, _ in onRecalculate() }
+        .onChange(of: transportType) { onRecalculate() }
+        .onAppear { onRecalculate() }
+    }
+    
+
 }
 
 private struct PolylineMapView: UIViewRepresentable {
@@ -494,6 +453,234 @@ private struct PolylineMapView: UIViewRepresentable {
             return MKOverlayRenderer(overlay: overlay)
         }
     }
+}
+
+private struct ETAHeaderView: View {
+    let eta: TimeInterval
+    let isLoading: Bool
+    let transportType: MKDirectionsTransportType
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbolName(for: transportType))
+                .foregroundStyle(.secondary)
+            
+            if isLoading {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                Text("Calculating")
+            } else {
+                Text("ETA")
+                    .foregroundStyle(.secondary)
+                Text(Duration.seconds(self.eta).formatted(.time(pattern: .hourMinute)))
+            }
+            
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+    }
+}
+
+private struct SegmentNavigationView: View {
+    var coordinates: [CLLocationCoordinate2D]
+    var stopsNames: [String]
+    var transportType: MKDirectionsTransportType
+    
+    
+    var body: some View {
+        let segmentIndices = Array(1..<coordinates.count)
+        
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(segmentIndices, id: \.self) { i in
+                    let sourceCoor = self.coordinates[i-1]
+                    let destCoor = self.coordinates[i]
+                    let sourceName = self.stopsNames[i-1]
+                    let destName = self.stopsNames[i]
+                    
+                    SegmentCard(
+                        fromCoor: sourceCoor,
+                        toCoor: destCoor,
+                        fromName: sourceName,
+                        toName: destName,
+                        transportType: transportType
+                    )
+
+                }
+            }
+        }
+    }
+}
+
+private struct SegmentCard: View {
+    let fromCoor: CLLocationCoordinate2D
+    let toCoor: CLLocationCoordinate2D
+    let fromName: String
+    let toName: String
+    let transportType: MKDirectionsTransportType
+    
+    @State private var isLoading: Bool = true
+    @State private var eta: TimeInterval = 0
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "location.circle.fill")
+                        .foregroundStyle(.secondary)
+                    Text("from: \(fromName)")
+                        .font(.subheadline)
+                        .lineLimit(1)
+                }
+                
+                HStack(spacing: 6) {
+                    Image(systemName: "mappin.circle.fill")
+                        .foregroundStyle(.secondary)
+                    Text("to: \(toName)")
+                        .font(.subheadline)
+                        .lineLimit(1)
+                }
+                
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.8)
+                        Text("Calculating ETA…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("ETA: \(Duration.seconds(eta).formatted(.time(pattern: .hourMinute)))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+            }
+            
+            Spacer()
+
+            Button {
+                let sourceItem = makeMKMapItem(location_coordinate: fromCoor, location_address: nil, location_name: fromName)
+                let destItem = makeMKMapItem(location_coordinate: toCoor, location_address: nil, location_name: toName)
+                launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportType)
+            } label: {
+                Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.green))
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .task(id: transportType) {
+            await loadETA()
+        }
+    }
+    
+    // 將 async ETA 載入封裝在子 view 內
+    private func loadETA() async {
+        isLoading = true
+        let value = await getETA(
+            source_coor: fromCoor,
+            dest_coor: toCoor,
+            source_name: fromName,
+            dest_name: toName,
+            transport_type: transportType
+        )
+        // getETA 可能需要保證回傳值
+        await MainActor.run {
+            self.eta = value
+            self.isLoading = false
+        }
+    }
+}
+
+func makeMKMapItem(location_coordinate coordinate: CLLocationCoordinate2D, location_address address: MKAddress?, location_name name: String?) -> MKMapItem {
+    let item = MKMapItem(location: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude), address: address)
+    item.name = name
+    return item
+}
+
+func symbolName(for type: MKDirectionsTransportType) -> String {
+    switch type {
+    case .automobile:   return "car.fill"
+    case .walking:      return "figure.walk"
+    case .cycling:      return "bicycle"
+    case .transit:      return "bus.fill"
+    case .any:          return "infinity"
+    default:            return "car.fill"
+    }
+}
+
+func getMKDirectionsRequest(source_coor sourceCoor: CLLocationCoordinate2D, destinatin_coor destCoor: CLLocationCoordinate2D, source_name sourceName: String, destination_name destName: String, transport_type transportType: MKDirectionsTransportType) -> MKDirections {
+    let sourceItem = makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: sourceName)
+    
+    let destItem = makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: destName)
+    
+    
+    let request = MKDirections.Request()
+    request.source = sourceItem
+    request.destination = destItem
+    request.transportType = transportType
+    
+    return MKDirections(request: request)
+}
+
+func getETAs(coordinate coordinates: [CLLocationCoordinate2D], stops_names stopsNames: [String], transport_type transportType: MKDirectionsTransportType) async -> TimeInterval {
+    var eta: TimeInterval = 0
+    for i in 1..<coordinates.count {
+        let MKDInstance = getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType)
+        
+        do {
+            let seg_eta = try await MKDInstance.calculateETA().expectedTravelTime
+            eta += seg_eta
+            print("Segment ETA: \(seg_eta)")
+        } catch {
+            print("MKDirections Request failed: \(error)")
+        }
+    }
+    return eta
+}
+
+func getETA(source_coor sourceCoor: CLLocationCoordinate2D, dest_coor destCoor: CLLocationCoordinate2D, source_name sourceName: String, dest_name destName: String, transport_type transportType: MKDirectionsTransportType) async -> TimeInterval {
+    let MKDInstance = getMKDirectionsRequest(source_coor: sourceCoor, destinatin_coor: destCoor, source_name: sourceName, destination_name: destName, transport_type: transportType)
+    do {
+        let eta = try await MKDInstance.calculateETA().expectedTravelTime
+        return eta
+    } catch {
+       print("fetch ETA error")
+    }
+    return 0
+}
+
+func launchNativeAppleMaps(from sourceItem: MKMapItem, to destItem: MKMapItem, transport_type transportType: MKDirectionsTransportType) {
+    //  since Apple does not expose the entire transit polyline
+    //  we have two solutions:
+    //  1). shortcut to apple maps
+    //  2). use google maps to get the polyline (Charges $$$$)
+
+    // Set the launch options to enforce public transit
+    let mode: String
+    switch transportType {
+    case .automobile: mode = MKLaunchOptionsDirectionsModeDriving
+    case .walking: mode = MKLaunchOptionsDirectionsModeWalking
+    case .cycling: mode = MKLaunchOptionsDirectionsModeCycling
+    case .transit: mode = MKLaunchOptionsDirectionsModeTransit
+    case .any: mode = MKLaunchOptionsDirectionsModeDefault
+    default: mode = MKLaunchOptionsDirectionsModeDefault
+    }
+    let launchOptions = [MKLaunchOptionsDirectionsModeKey: mode]
+
+    // Opens the native Apple Maps app with the calculated transit route
+    MKMapItem.openMaps(with: [sourceItem, destItem], launchOptions: launchOptions)
 }
 
 
