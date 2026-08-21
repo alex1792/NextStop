@@ -2,6 +2,8 @@
 
 A travel itinerary iOS app for planning multi-day trips with route visualization and ETA estimation.
 
+**Quick Demo:** [NextStop](https://youtube.com/shorts/z1DFnuUeA-s?si=S0R8-N2VLSDUiBp5)
+
 ## Overview
 
 NextStop lets you organize trips by day, add stops to each day, and visualize the full route on a map. Each trip shows a polyline route across all stops, real-time ETA by transport mode, and per-segment navigation cards with Apple Maps integration.
