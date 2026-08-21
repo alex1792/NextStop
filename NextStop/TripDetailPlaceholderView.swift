@@ -44,6 +44,7 @@ class RouteViewModel {
                 
                 // 4. pass the 0.5s sleep, means user stop editing. Starting sending request for directions
                 struct SegmentResult {
+                    let index: Int  //  the index of polyline in the itinerary
                     let polyline: MKPolyline?
                     let eta: TimeInterval
                 }
@@ -69,7 +70,7 @@ class RouteViewModel {
                                 let eta = try await MKDInstance.calculateETA().expectedTravelTime
                                 print("Segment \(i) took: \(elapsed1)")
                                 
-                                return SegmentResult(polyline: response.routes.first?.polyline, eta: eta)
+                                return SegmentResult(index: i - 1, polyline: response.routes.first?.polyline, eta: eta)
                             } catch {
                                 print("MKDirections Request failed: \(error)")
                                 return nil
@@ -84,7 +85,11 @@ class RouteViewModel {
                     return results
                 }
                 
-                // 5. Maker sure before updating UI, the task is not canceled at the last minute
+                //  sort the polylines based on segment index
+                self.polylines = results.sorted{$0.index < $1.index}.compactMap{$0.polyline}
+                print("Polylines are Sorted...")
+                
+                // 5. Make sure before updating UI, the task is not canceled at the last minute
                 guard !Task.isCancelled else { return }
                 
                 //  check if transport type is .transit, then launch apple maps
@@ -97,7 +102,6 @@ class RouteViewModel {
                     return
                 }
 
-                self.polylines = results.compactMap { $0.polyline }
                 self.ETA = results.reduce(0) { $0 + $1.eta }
                 if !self.polylines.isEmpty {
                     // use the first route's boundingMapRect as reference
@@ -154,6 +158,21 @@ struct TripDetailPlaceholderView: View {
     @State private var transportType: MKDirectionsTransportType = .automobile
     
     @State private var selection: Int = 0
+    @State private var selectedSegmentIndex: Int? = nil
+    
+    private var displayPolylines: [MKPolyline] {
+        if let idx = selectedSegmentIndex, idx < viewModel.polylines.count {
+            return [viewModel.polylines[idx]]
+        }
+        return viewModel.polylines
+    }
+    
+    private var displayMapRect: MKMapRect {
+        if let idx = selectedSegmentIndex, idx < viewModel.polylines.count {
+            return viewModel.polylines[idx].boundingMapRect
+        }
+        return viewModel.totalMapRect
+    }
     
     init(trip: Trip, selectedDay: Int? = nil) {
         self.trip = trip
@@ -200,8 +219,8 @@ struct TripDetailPlaceholderView: View {
                 VStack(spacing: 0) {
                     PolylineMapView(
                         coordinates: coordinates,
-                        polylines: viewModel.polylines,
-                        totalMapRect: viewModel.totalMapRect,
+                        polylines: displayPolylines,
+                        totalMapRect: displayMapRect,
                         singleCoordinate: coordinates.first
                         
                     )
@@ -219,14 +238,25 @@ struct TripDetailPlaceholderView: View {
                         Tab("Segments", systemImage: "map.fill", value: 1){
                             Spacer().frame(height: 12)
                             
-                            SegmentNavigationView(coordinates: self.coordinates, stopsNames: self.stopsNames, transportType: self.transportType)
+                            SegmentNavigationView(coordinates: self.coordinates, stopsNames: self.stopsNames, transportType: self.transportType, onSelect: { idx in selectedSegmentIndex = idx })
                         }
                     }
                 }
+                .task(id: RouteInput(coordinates: coordinates, transportType: transportType)) {
+                    viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
+                }
             }
         }
-        .navigationTitle(selectedDay != nil ? "Day \(selectedDay!)" : trip.title)
+//        .navigationTitle(selectedDay != nil ? "Day \(selectedDay!)" : trip.title)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                let displayText: String = selectedDay != nil ? "Day \(selectedDay!)" : trip.title
+                Text(displayText)
+                    .font(.title)
+                    .bold()
+            }
+            
             ToolbarItem(placement: .confirmationAction) {
                 Button {
                     editMode = (editMode == .active) ? .inactive : .active
@@ -303,6 +333,16 @@ struct TripDetailPlaceholderView: View {
     }
 }
 
+private struct RouteInput: Equatable {
+    let coords: [String]
+    let transportType: MKDirectionsTransportType
+    
+    init(coordinates: [CLLocationCoordinate2D], transportType: MKDirectionsTransportType) {
+        self.coords = coordinates.map { "\($0.latitude),\($0.longitude)" }
+        self.transportType = transportType
+    }
+}
+
 private struct ItineraryListView: View {
     let stops: [Stop]
     @Binding var editMode: EditMode
@@ -351,12 +391,7 @@ private struct ItineraryListView: View {
             }
         }
         .environment(\.editMode, $editMode)
-        .onChange(of: stops) { _, _ in onRecalculate() }
-        .onChange(of: transportType) { onRecalculate() }
-        .onAppear { onRecalculate() }
     }
-    
-
 }
 
 private struct PolylineMapView: UIViewRepresentable {
@@ -487,7 +522,7 @@ private struct ETAHeaderView: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 4)
-            .padding(.bottom, 0)
+            .padding(.bottom, 5)
         }
         // Make the header sit flush against the map: no extra top padding
         .padding(.top, 0)
@@ -516,7 +551,7 @@ private struct SegmentNavigationView: View {
     var coordinates: [CLLocationCoordinate2D]
     var stopsNames: [String]
     var transportType: MKDirectionsTransportType
-    
+    let onSelect: (Int) -> Void
     
     var body: some View {
         let segmentIndices = Array(1..<coordinates.count)
@@ -534,7 +569,8 @@ private struct SegmentNavigationView: View {
                         toCoor: destCoor,
                         fromName: sourceName,
                         toName: destName,
-                        transportType: transportType
+                        transportType: transportType,
+                        onSelect: { onSelect(i - 1) }
                     )
                     
                 }
@@ -549,6 +585,7 @@ private struct SegmentCard: View {
     let fromName: String
     let toName: String
     let transportType: MKDirectionsTransportType
+    let onSelect: () -> Void
     
     @State private var isLoading: Bool = true
     @State private var eta: TimeInterval = 0
@@ -606,6 +643,7 @@ private struct SegmentCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(.ultraThinMaterial)
         )
+        .onTapGesture{ onSelect() }
         .task(id: transportType) {
             await loadETA()
         }

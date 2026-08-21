@@ -22,13 +22,17 @@ struct DayView: View {
                     HStack {
                         Text("Day \(day)")
                             .font(.body)
-                        
                         Spacer()
                     }
                 }
             }
         }
         .navigationTitle("Days")
+//        .toolbar {
+//            ToolbarItem(placement: .principal) {
+//                Text("Days").font(.title).bold()
+//            }
+//        }
     }
 }
 

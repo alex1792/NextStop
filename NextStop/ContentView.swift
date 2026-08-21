@@ -36,7 +36,6 @@ struct ContentView: View {
                         ForEach(trips) { trip in
                             NavigationLink {
                                 DayView(trip: trip)
-//                                TripDetailPlaceholderView(trip: trip)
                             } label: {
                                 TripRowView(trip: trip)
                             }
@@ -127,7 +126,6 @@ struct ContentView: View {
     private func addTrip() {
         withAnimation {
             let days = computeNumDays(start: startDate, end: endDate)
-//            print(days)
             let newTrip = Trip(
                 title: newTripTitle,
                 tripDescription: "Test description",
@@ -163,10 +161,6 @@ struct ContentView: View {
         return max(0, diff) + 1
     }
 }
-
-
-
-
 
 #Preview {
     ContentView()
