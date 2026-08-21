@@ -13,3 +13,7 @@ func makeMKMapItem(location_coordinate coordinate: CLLocationCoordinate2D, locat
     item.name = name
     return item
 }
+
+func getCurrentLocationMKMapItem() -> MKMapItem {
+    return MKMapItem.forCurrentLocation()
+}

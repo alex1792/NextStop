@@ -359,7 +359,7 @@ private struct ItineraryListView: View {
             if editMode == .active {
                 ForEach(stops) { stop in
                     NavigationLink {
-                        StopDetailView(stop: stop)
+                        StopDetailView(stop: stop, transportType: transportType)
                     } label: {
                         Text(stop.name)
                             .font(.caption)
@@ -382,7 +382,7 @@ private struct ItineraryListView: View {
             } else {
                 ForEach(stops) { stop in
                     NavigationLink {
-                        StopDetailView(stop: stop)
+                        StopDetailView(stop: stop, transportType: transportType)
                     } label: {
                         Text(stop.name)
                             .font(.caption)
@@ -512,7 +512,7 @@ private struct ETAHeaderView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("ETA")
+                    Text("Expected Travel Time")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Text(Duration.seconds(self.eta).formatted(.time(pattern: .hourMinute)))
@@ -625,6 +625,20 @@ private struct SegmentCard: View {
             }
             
             Spacer()
+            
+            Button {
+                let sourceItem = getCurrentLocationMKMapItem()
+                let destItem =  makeMKMapItem(location_coordinate: toCoor, location_address: nil, location_name: toName)
+                launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportType)
+            } label: {
+                Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.accentColor))
+            }
+            
+            Spacer().frame(maxWidth: 10)
 
             Button {
                 let sourceItem = makeMKMapItem(location_coordinate: fromCoor, location_address: nil, location_name: fromName)
