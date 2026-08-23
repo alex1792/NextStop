@@ -16,7 +16,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "11"
             endingLineNumber = "11"
-            landmarkName = "getMKDirectionsRequest(source_coor:destinatin_coor:source_name:destination_name:transport_type:time_interval:)"
+            landmarkName = "getMKDirectionsRequest(from:to:transport_type:time_interval:)"
             landmarkType = "9">
          </BreakpointContent>
       </BreakpointProxy>
@@ -32,7 +32,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "11"
             endingLineNumber = "11"
-            landmarkName = "getMKDirectionsRequest(source_coor:destinatin_coor:source_name:destination_name:transport_type:time_interval:)"
+            landmarkName = "getMKDirectionsRequest(from:to:transport_type:time_interval:)"
             landmarkType = "9">
          </BreakpointContent>
       </BreakpointProxy>
@@ -48,7 +48,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "105"
             endingLineNumber = "105"
-            landmarkName = "calculateRoutes(from:stopsNames:transportType:)"
+            landmarkName = "calculateRoutes(from:transportType:)"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>

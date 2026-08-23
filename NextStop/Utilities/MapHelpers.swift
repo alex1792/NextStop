@@ -8,9 +8,13 @@
 import MapKit
 import CoreLocation
 
-func makeMKMapItem(location_coordinate coordinate: CLLocationCoordinate2D, location_address address: MKAddress?, location_name name: String?) -> MKMapItem {
-    let item = MKMapItem(location: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude), address: address)
-    item.name = name
+func makeMKMapItem(from stop: Stop) -> MKMapItem {
+    let item = MKMapItem(
+        location: CLLocation(latitude: stop.latitude, longitude: stop.longitude), address: nil)
+    item.name = stop.name
+    item.phoneNumber = stop.phoneNumber
+    item.url = stop.url
+    item.pointOfInterestCategory = stop.category
     return item
 }
 

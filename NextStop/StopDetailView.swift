@@ -28,7 +28,7 @@ struct StopDetailView: View {
             
             Button {
                 let sourceItem = getCurrentLocationMKMapItem()
-                let destItem =  makeMKMapItem(location_coordinate: stop.coordinate, location_address: nil, location_name: stop.name)
+                let destItem =  makeMKMapItem(from: stop)
                 launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportType)
             } label: {
                 Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")

@@ -8,10 +8,10 @@
 import MapKit
 import CoreLocation
 
-func getMKDirectionsRequest(source_coor sourceCoor: CLLocationCoordinate2D, destinatin_coor destCoor: CLLocationCoordinate2D, source_name sourceName: String, destination_name destName: String, transport_type transportType: MKDirectionsTransportType, time_interval timeInterval: TimeInterval) -> MKDirections {
-    let sourceItem = makeMKMapItem(location_coordinate: sourceCoor, location_address: nil, location_name: sourceName)
+func getMKDirectionsRequest(from source: Stop, to dest: Stop, transport_type transportType: MKDirectionsTransportType, time_interval timeInterval: TimeInterval) -> MKDirections {
+    let sourceItem = makeMKMapItem(from: source)
     
-    let destItem = makeMKMapItem(location_coordinate: destCoor, location_address: nil, location_name: destName)
+    let destItem = makeMKMapItem(from: dest)
     
     
     let request = MKDirections.Request()

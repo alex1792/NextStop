@@ -8,6 +8,7 @@
 import Foundation
 import SwiftData
 import CoreLocation
+import MapKit
 
 @Model
 final class Stop {
@@ -18,6 +19,9 @@ final class Stop {
     var orderIndex: Int
 //    var stopDescription: String
 //    var address: String
+    var phoneNumber: String?
+    var url: URL?
+    var categoryRawValue: String?
     
     @Relationship(inverse: \Trip.stops)
     var trip: Trip?
@@ -27,12 +31,20 @@ final class Stop {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
     
-    init(name: String, latitude: Double, longitude: Double, dayNumber: Int=1, orderIndex: Int=0, trip: Trip? = nil) {
+    var category: MKPointOfInterestCategory? {
+        get {categoryRawValue.map {MKPointOfInterestCategory(rawValue: $0)}}
+        set {categoryRawValue = newValue?.rawValue}
+    }
+    
+    init(name: String, latitude: Double, longitude: Double, dayNumber: Int=1, orderIndex: Int=0, trip: Trip? = nil, phoneNumber: String? = nil, url: URL? = nil, category: MKPointOfInterestCategory? = nil) {
         self.name = name
         self.latitude = latitude
         self.longitude = longitude
         self.dayNumber = dayNumber
         self.orderIndex = orderIndex
         self.trip = trip
+        self.phoneNumber = phoneNumber
+        self.url = url
+        self.categoryRawValue = category?.rawValue
     }
 }

@@ -20,8 +20,8 @@ class RouteViewModel {
     // Tracking and Canceling the tasks in queue
     private var routingTask: Task<Void, Never>?
     
-    func calculateRoutes(from coordinates: [CLLocationCoordinate2D], stopsNames: [String], transportType: MKDirectionsTransportType = .automobile) {
-        guard coordinates.count >= 2 else {
+    func calculateRoutes(from stops: [Stop], transportType: MKDirectionsTransportType = .automobile) {
+        guard stops.count >= 2 else {
             self.polylines = []
             self.totalMapRect = .null
             return
@@ -50,8 +50,8 @@ class RouteViewModel {
                 }
                 
                 let results: [SegmentResult] = await withTaskGroup(of: SegmentResult?.self) { group in
-                    for i in 1..<coordinates.count {
-                        let MKDInstance = getMKDirectionsRequest(source_coor: coordinates[i - 1], destinatin_coor: coordinates[i], source_name: stopsNames[i - 1], destination_name: stopsNames[i], transport_type: transportType, time_interval: 0)
+                    for i in 1..<stops.count {
+                        let MKDInstance = getMKDirectionsRequest(from: stops[i-1], to: stops[i], transport_type: transportType, time_interval: 0)
                         
                         group.addTask {
                             if transportType == .transit {
@@ -96,7 +96,7 @@ class RouteViewModel {
                 if transportType == .transit
                 {
                     //  calculate ETA
-                    self.ETA = await getETAs(coordinate: coordinates, stops_names: stopsNames, transport_type: transportType)
+                    self.ETA = await getETAs(from: stops, transport_type: transportType)
                     
                     self.isLoading = false
                     return
@@ -141,14 +141,6 @@ struct TripDetailPlaceholderView: View {
         order: .forward
     )
     private var stops: [Stop]
-
-    private var coordinates: [CLLocationCoordinate2D] {
-        stops.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-    }
-    
-    private var stopsNames: [String] {
-        stops.map { $0.name }
-    }
     
     @State private var viewModel = RouteViewModel()
     @State private var showingAddStop = false
@@ -159,6 +151,7 @@ struct TripDetailPlaceholderView: View {
     
     @State private var selection: Int = 0
     @State private var selectedSegmentIndex: Int? = nil
+    
     
     private var displayPolylines: [MKPolyline] {
         if let idx = selectedSegmentIndex, idx < viewModel.polylines.count {
@@ -218,32 +211,34 @@ struct TripDetailPlaceholderView: View {
             } else {
                 VStack(spacing: 0) {
                     PolylineMapView(
-                        coordinates: coordinates,
+                        stops: stops,
                         polylines: displayPolylines,
                         totalMapRect: displayMapRect,
-                        singleCoordinate: coordinates.first
-                        
                     )
                         .frame(height: 240)
                     
                     ETAHeaderView(eta: self.viewModel.ETA, isLoading: self.viewModel.isLoading, transportType: $transportType)
                     
+//                    Spacer().frame(maxWidth: .infinity, maxHeight: 5)
+                    
                     TabView(selection: $selection) {
                         Tab("Itinerary", systemImage:"text.page.fill", value: 0){
-                            ItineraryListView(stops: stops, editMode: $editMode, coordinates: coordinates, stopsNames: stopsNames, transportType: transportType, onRecalculate: {
-                                viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
+                            ItineraryListView(stops: stops, editMode: $editMode, transportType: transportType, onRecalculate: {
+                                viewModel.calculateRoutes(from: stops, transportType: transportType)
                             }, onDelete: deleteStop, selectedDay: selectedDay)
+                            .onAppear {editMode = .active}
                         }
                         
                         Tab("Segments", systemImage: "map.fill", value: 1){
                             Spacer().frame(height: 12)
                             
-                            SegmentNavigationView(coordinates: self.coordinates, stopsNames: self.stopsNames, transportType: self.transportType, onSelect: { idx in selectedSegmentIndex = idx })
+                            SegmentNavigationView(stops: self.stops, transportType: self.transportType, onSelect: { idx in selectedSegmentIndex = idx })
+                                .onAppear {editMode = .inactive}
                         }
                     }
                 }
-                .task(id: RouteInput(coordinates: coordinates, transportType: transportType)) {
-                    viewModel.calculateRoutes(from: coordinates, stopsNames: stopsNames, transportType: transportType)
+                .task(id: RouteInput(stops: stops, transportType: transportType)) {
+                    viewModel.calculateRoutes(from: stops, transportType: transportType)
                 }
             }
         }
@@ -258,14 +253,16 @@ struct TripDetailPlaceholderView: View {
             }
             
             ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    editMode = (editMode == .active) ? .inactive : .active
-                } label: {
-                    if editMode == .inactive {
-                        Image(systemName: "list.bullet")
-                    } else {
-                        Image(systemName: "checkmark")
+                if selection == 0 {
+                    Button {
+                        editMode = (editMode == .active) ? .inactive : .active
+                    } label: {
+                        if editMode == .inactive {
+                            Image(systemName: "list.bullet")
+                        } else {
+                            Image(systemName: "checkmark")
 
+                        }
                     }
                 }
             }
@@ -308,7 +305,10 @@ struct TripDetailPlaceholderView: View {
                 longitude: pendingSelectedPlace?.location.coordinate.longitude ?? 0.00,
                 dayNumber: day,
                 orderIndex: nextIndex,
-                trip: trip
+                trip: trip,
+                phoneNumber: pendingSelectedPlace?.phoneNumber,
+                url: pendingSelectedPlace?.url,
+                category: pendingSelectedPlace?.pointOfInterestCategory
             )
             
             modelContext.insert(newStop)
@@ -337,8 +337,8 @@ private struct RouteInput: Equatable {
     let coords: [String]
     let transportType: MKDirectionsTransportType
     
-    init(coordinates: [CLLocationCoordinate2D], transportType: MKDirectionsTransportType) {
-        self.coords = coordinates.map { "\($0.latitude),\($0.longitude)" }
+    init(stops: [Stop], transportType: MKDirectionsTransportType) {
+        self.coords = stops.map { "\($0.latitude),\($0.longitude)" }
         self.transportType = transportType
     }
 }
@@ -346,8 +346,6 @@ private struct RouteInput: Equatable {
 private struct ItineraryListView: View {
     let stops: [Stop]
     @Binding var editMode: EditMode
-    let coordinates: [CLLocationCoordinate2D]
-    let stopsNames: [String]
     let transportType: MKDirectionsTransportType
     let onRecalculate: () -> Void
     let onDelete: (IndexSet) -> Void
@@ -395,10 +393,9 @@ private struct ItineraryListView: View {
 }
 
 private struct PolylineMapView: UIViewRepresentable {
-    let coordinates: [CLLocationCoordinate2D]
+    let stops: [Stop]
     let polylines: [MKPolyline]
     let totalMapRect: MKMapRect
-    let singleCoordinate: CLLocationCoordinate2D?
 
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
@@ -410,20 +407,21 @@ private struct PolylineMapView: UIViewRepresentable {
         // Clear previous overlays and annotations
         mapView.removeOverlays(mapView.overlays)
         mapView.removeAnnotations(mapView.annotations)
+        
 
         // Add annotations (optional)
-        for (idx, coord) in coordinates.enumerated() {
+        for (idx, stop) in stops.enumerated() {
             let ann = MKPointAnnotation()
-            ann.coordinate = coord
+            ann.coordinate = stop.coordinate
             ann.title = "Stop \(idx + 1)"
             mapView.addAnnotation(ann)
         }
 
         //  if only one point, just show the pin
         guard !polylines.isEmpty else {
-            if let singleCoordinate {
+            if let first = stops.first {
                 let region = MKCoordinateRegion(
-                    center: singleCoordinate,
+                    center: first.coordinate,
                     span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
                 )
                 mapView.setRegion(region, animated: false)
@@ -548,31 +546,22 @@ private struct ETAHeaderView: View {
 }
 
 private struct SegmentNavigationView: View {
-    var coordinates: [CLLocationCoordinate2D]
-    var stopsNames: [String]
+    var stops: [Stop]
     var transportType: MKDirectionsTransportType
     let onSelect: (Int) -> Void
     
     var body: some View {
-        let segmentIndices = Array(1..<coordinates.count)
+        let segmentIndices = Array(1..<stops.count)
         
         ScrollView {
             VStack(spacing: 12) {
                 ForEach(segmentIndices, id: \.self) { i in
-                    let sourceCoor = self.coordinates[i-1]
-                    let destCoor = self.coordinates[i]
-                    let sourceName = self.stopsNames[i-1]
-                    let destName = self.stopsNames[i]
-                    
                     SegmentCard(
-                        fromCoor: sourceCoor,
-                        toCoor: destCoor,
-                        fromName: sourceName,
-                        toName: destName,
+                        source: stops[i - 1],
+                        dest: stops[i],
                         transportType: transportType,
                         onSelect: { onSelect(i - 1) }
                     )
-                    
                 }
             }
         }
@@ -580,15 +569,14 @@ private struct SegmentNavigationView: View {
 }
 
 private struct SegmentCard: View {
-    let fromCoor: CLLocationCoordinate2D
-    let toCoor: CLLocationCoordinate2D
-    let fromName: String
-    let toName: String
+    let source: Stop
+    let dest: Stop
     let transportType: MKDirectionsTransportType
     let onSelect: () -> Void
     
     @State private var isLoading: Bool = true
     @State private var eta: TimeInterval = 0
+    @State private var distance: CLLocationDistance?
     
     var body: some View {
         HStack {
@@ -596,7 +584,7 @@ private struct SegmentCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "location.circle.fill")
                         .foregroundStyle(.secondary)
-                    Text("from: \(fromName)")
+                    Text("from: \(source.name)")
                         .font(.subheadline)
                         .lineLimit(1)
                 }
@@ -604,7 +592,7 @@ private struct SegmentCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "mappin.circle.fill")
                         .foregroundStyle(.secondary)
-                    Text("to: \(toName)")
+                    Text("to: \(dest.name)")
                         .font(.subheadline)
                         .lineLimit(1)
                 }
@@ -617,9 +605,18 @@ private struct SegmentCard: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("ETA: \(Duration.seconds(eta).formatted(.time(pattern: .hourMinute)))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text("Distance: \(formatDistance(distance))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        Spacer().frame(maxWidth: 20)
+                        
+                        Text("ETA: \(Duration.seconds(eta).formatted(.time(pattern: .hourMinute)))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
                 }
                 
             }
@@ -628,7 +625,7 @@ private struct SegmentCard: View {
             
             Button {
                 let sourceItem = getCurrentLocationMKMapItem()
-                let destItem =  makeMKMapItem(location_coordinate: toCoor, location_address: nil, location_name: toName)
+                let destItem =  makeMKMapItem(from: dest)
                 launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportType)
             } label: {
                 Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
@@ -641,8 +638,8 @@ private struct SegmentCard: View {
             Spacer().frame(maxWidth: 10)
 
             Button {
-                let sourceItem = makeMKMapItem(location_coordinate: fromCoor, location_address: nil, location_name: fromName)
-                let destItem = makeMKMapItem(location_coordinate: toCoor, location_address: nil, location_name: toName)
+                let sourceItem = makeMKMapItem(from: source)
+                let destItem = makeMKMapItem(from: dest)
                 launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportType)
             } label: {
                 Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
@@ -670,17 +667,26 @@ private struct SegmentCard: View {
     private func loadETA() async {
         isLoading = true
         let value = await getETA(
-            source_coor: fromCoor,
-            dest_coor: toCoor,
-            source_name: fromName,
-            dest_name: toName,
+            from: source,
+            to: dest,
             transport_type: transportType
         )
+        
+        let dist = await getDistance(
+            from: source,
+            to: dest,
+            transport_type: transportType,
+            time_interval: 0.0
+        )
+        
         // getETA 可能需要保證回傳值
         await MainActor.run {
             self.eta = value
+            self.distance = dist
             self.isLoading = false
         }
+        
+        
     }
 }
 
