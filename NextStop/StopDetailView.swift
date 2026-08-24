@@ -26,6 +26,9 @@ struct StopDetailView: View {
             
             Text("\(stop.longitude)")
             
+            Text("\(stop.category?.rawValue.replacingOccurrences(of: "MKPOICategory", with: "") ?? "Unknown")")
+            
+            
             Button {
                 let sourceItem = getCurrentLocationMKMapItem()
                 let destItem =  makeMKMapItem(from: stop)

@@ -226,7 +226,7 @@ struct TripDetailPlaceholderView: View {
                             ItineraryListView(stops: stops, editMode: $editMode, transportType: transportType, onRecalculate: {
                                 viewModel.calculateRoutes(from: stops, transportType: transportType)
                             }, onDelete: deleteStop, selectedDay: selectedDay)
-                            .onAppear {editMode = .active}
+//                            .onAppear {editMode = .active}
                         }
                         
                         Tab("Segments", systemImage: "map.fill", value: 1){
@@ -551,17 +551,26 @@ private struct SegmentNavigationView: View {
     let onSelect: (Int) -> Void
     
     var body: some View {
-        let segmentIndices = Array(1..<stops.count)
+//        let segmentIndices = Array(1..<stops.count)
         
         ScrollView {
             VStack(spacing: 12) {
-                ForEach(segmentIndices, id: \.self) { i in
-                    SegmentCard(
-                        source: stops[i - 1],
-                        dest: stops[i],
-                        transportType: transportType,
-                        onSelect: { onSelect(i - 1) }
-                    )
+//                ForEach(segmentIndices, id: \.self) { i in
+//                    SegmentCard(
+//                        source: stops[i - 1],
+//                        dest: stops[i],
+//                        transportType: transportType,
+//                        onSelect: { onSelect(i - 1) }
+//                    )
+//                }
+                let locationCardIndices = 1..<stops.count
+                
+                LocationCardView(stop: stops[0], transportType: transportType)
+                
+                ForEach(locationCardIndices, id: \.self) { i in
+                    NavigationView(source: stops[i - 1], dest: stops[i])
+                    
+                    LocationCardView(stop: stops[i], transportType: transportType)
                 }
             }
         }
@@ -612,7 +621,7 @@ private struct SegmentCard: View {
                         
                         Spacer().frame(maxWidth: 20)
                         
-                        Text("ETA: \(Duration.seconds(eta).formatted(.time(pattern: .hourMinute)))")
+                        Text("Expected Travel Time: \(Duration.seconds(eta).formatted(.time(pattern: .hourMinute)))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
