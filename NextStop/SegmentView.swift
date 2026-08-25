@@ -193,8 +193,8 @@ struct NavigationView : View {
 }
 
 #Preview {
-    let stop1 = Stop(name: "Location 1", latitude: 25.0330, longitude: 121.5654)
-    let stop2 = Stop(name: "Location 2", latitude: 12.213, longitude: 123.134)
+    let stop1 = Stop(name: "Location 1", latitude: 25.0330, longitude: 121.5654, address: "1448 1/2 W 28th St, Los Angeles, CA 90007")
+    let stop2 = Stop(name: "Location 2", latitude: 12.213, longitude: 123.134, address: "1351 W 37th St, Los Angeles, CA 90007")
     let stops = [stop1, stop2]
     SegmentView(stops: stops)
         .modelContainer(for: [Stop.self, Trip.self], inMemory: true)
