@@ -19,6 +19,8 @@ struct ContentView: View {
     @State private var endDate: Date = Date()
     @State private var numDays: Int = 1
     @State private var showAlert: Bool = false
+    @State private var selectedTrip: Trip? = nil
+    @State private var showingEditTripSheet: Bool = false
     
     var body: some View {
         NavigationStack {
@@ -38,6 +40,14 @@ struct ContentView: View {
                                 DayView(trip: trip)
                             } label: {
                                 TripRowView(trip: trip)
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    selectedTrip = trip
+//                                    showingEditTripSheet = true
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
                             }
                         }
                         .onDelete(perform: deleteTrips)
@@ -119,6 +129,9 @@ struct ContentView: View {
                 }
                 .presentationDetents([.medium])
             }
+            .sheet(item: $selectedTrip) { trip in
+                EditTripSheet(trip: trip)
+            }
         }
     }
     
@@ -128,7 +141,6 @@ struct ContentView: View {
             let days = computeNumDays(start: startDate, end: endDate)
             let newTrip = Trip(
                 title: newTripTitle,
-                tripDescription: "Test description",
                 startDate: startDate,
                 endDate:  endDate,
                 numDays: days
@@ -159,6 +171,38 @@ struct ContentView: View {
         let startOfEnd = calendar.startOfDay(for: end)
         let diff = calendar.dateComponents([.day], from: startOfStart, to: startOfEnd).day ?? 0
         return max(0, diff) + 1
+    }
+}
+
+struct EditTripSheet: View {
+    @Bindable var trip: Trip
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Trip Information") {
+                    TextField("Title", text: $trip.title)
+                }
+                Section("Dates") {
+                    DatePicker("Start Date", selection: $trip.startDate, displayedComponents: .date,)
+                        .onChange(of: trip.startDate) { _, newStartDate in
+                            if trip.endDate < newStartDate {
+                                trip.endDate = newStartDate
+                            }
+                        }
+                    DatePicker("End Date", selection: $trip.endDate, in: trip.startDate..., displayedComponents: .date)
+                }
+            }
+            .navigationTitle("Edit Trip")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {dismiss()}
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

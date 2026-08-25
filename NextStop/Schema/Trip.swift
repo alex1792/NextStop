@@ -12,7 +12,7 @@ import SwiftData
 final class Trip {
     var id: UUID = UUID()
     var title: String
-    var tripDescription: String
+    var tripDescription: String?
     var startDate: Date
     var endDate: Date
     var numDays: Int
@@ -20,9 +20,8 @@ final class Trip {
     @Relationship(deleteRule: .cascade)
     var stops: [Stop] = []
     
-    init(title: String, tripDescription: String="", startDate: Date=Date(), endDate: Date=Date(), numDays: Int=1) {
+    init(title: String, startDate: Date=Date(), endDate: Date=Date(), numDays: Int=1) {
         self.title = title
-        self.tripDescription = tripDescription
         self.startDate = startDate
         self.endDate = endDate
         self.numDays = numDays

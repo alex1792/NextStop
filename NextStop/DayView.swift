@@ -39,7 +39,6 @@ struct DayView: View {
 #Preview ("DayView") {
     let sampleTrip = Trip(
         title: "5 Days to Tokyo",
-        tripDescription: "Preview trip",
         startDate: Date(),
         endDate: Date(),
         numDays: 5
