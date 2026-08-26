@@ -2,9 +2,21 @@
 
 A travel itinerary iOS app for planning multi-day trips with route visualization and ETA estimation.
 
-**Quick Demo:** [NextStop](https://youtube.com/shorts/z1DFnuUeA-s?si=S0R8-N2VLSDUiBp5)
-**Create Trip**: 
-![Create Trip](create_trip.gif)
+**Quick Demo**: 
+<div style="display: flex; gap: 16px;">
+  <div style="flex: 1; text-align: center;">
+    <p><b>Create Trip</b></p>
+    <img src="create_trip.gif" style="width: 100%;">
+  </div>
+  <div style="flex: 1; text-align: center;">
+    <p><b>Route Planning</b></p>
+    <img src="route_planning.gif" style="width: 100%;">
+  </div>
+  <div style="flex: 1; text-align: center;">
+    <p><b>Location Information</b></p>
+    <img src="location_information.gif" style="width: 100%;">
+  </div>
+</div>
 
 ## Overview
 
