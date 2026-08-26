@@ -5,6 +5,7 @@ A travel itinerary iOS app for planning multi-day trips with route visualization
 **Quick Demo:** [NextStop](https://youtube.com/shorts/z1DFnuUeA-s?si=S0R8-N2VLSDUiBp5)
 
 **Create Trip**: 
+
 ![Create Trip](create_trip.gif)
 
 ## Overview
