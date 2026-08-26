@@ -2,7 +2,7 @@
 
 A travel itinerary iOS app for planning multi-day trips with route visualization and ETA estimation.
 
-**Quick Demo**: 
+**Quick Demo**
 <div style="display: flex; gap: 16px;">
   <div style="flex: 1; text-align: center;">
     <p><b>Create Trip</b></p>
