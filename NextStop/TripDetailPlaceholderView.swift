@@ -167,6 +167,26 @@ struct TripDetailPlaceholderView: View {
         return viewModel.totalMapRect
     }
     
+    private var shareText: String {
+        var lines: [String] = [trip.title]
+
+        if let day = selectedDay {
+            let dayDate = Calendar.current.date(byAdding: .day, value: day - 1, to: trip.startDate) ?? trip.startDate
+            lines.append("Day \(day) · \(dayDate.formatted(date: .abbreviated, time: .omitted))")
+        } else {
+            lines.append("\(trip.startDate.formatted(date: .abbreviated, time: .omitted)) — \(trip.endDate.formatted(date: .abbreviated, time: .omitted))")
+        }
+
+        lines.append("")
+
+        for stop in stops {
+            lines.append("• \(stop.name)")
+            if let addr = stop.addressRaw { lines.append("  \(addr)") }
+            if !stop.note.isEmpty { lines.append("  Note: \(stop.note)") }
+        }
+        return lines.joined(separator: "\n")
+    }
+    
     init(trip: Trip, selectedDay: Int? = nil) {
         self.trip = trip
         self.selectedDay = selectedDay
@@ -192,18 +212,19 @@ struct TripDetailPlaceholderView: View {
     var body: some View {
         VStack {
             if stops.isEmpty {
-                VStack(spacing: 12) {
+                VStack(spacing: 16) {
                     Image(systemName: "map.fill")
-                        .font(.system(size: 60))
-                        .foregroundStyle(.blue)
-                    
+                        .font(.system(size: 56))
+                        .foregroundStyle(.tint)
+
                     Text(trip.title)
-                        .font(.title)
+                        .font(.title2)
                         .bold()
-                    
-                    Text("No Stops Found in This Trip")
+
+                    Text("No stops planned yet")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
@@ -231,9 +252,18 @@ struct TripDetailPlaceholderView: View {
                         
                         Tab("Segments", systemImage: "map.fill", value: 1){
                             Spacer().frame(height: 12)
-                            
+
                             SegmentNavigationView(stops: self.stops, transportType: self.transportType, onSelect: { idx in selectedSegmentIndex = idx })
                                 .onAppear {editMode = .inactive}
+                        }
+
+                        Tab("Overview", systemImage: "list.clipboard", value: 2) {
+                            TripOverviewView(
+                                stops: stops,
+                                eta: viewModel.ETA,
+                                isLoading: viewModel.isLoading
+                            )
+                            .onAppear { editMode = .inactive }
                         }
                     }
                 }
@@ -252,16 +282,19 @@ struct TripDetailPlaceholderView: View {
                     .bold()
             }
             
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(item: shareText)
+            }
+            
             ToolbarItem(placement: .confirmationAction) {
                 if selection == 0 {
                     Button {
                         editMode = (editMode == .active) ? .inactive : .active
                     } label: {
                         if editMode == .inactive {
-                            Image(systemName: "list.bullet")
+                            Image(systemName: "pencil")
                         } else {
                             Image(systemName: "checkmark")
-
                         }
                     }
                 }
@@ -278,21 +311,23 @@ struct TripDetailPlaceholderView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            HStack {
-                Spacer()
-                
-                Button {
-                    showingAddStop = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 60, height:60)
-                        .background(Circle().fill(Color.accentColor))
+            if editMode == .inactive {
+                HStack {
+                    Spacer()
+
+                    Button {
+                        showingAddStop = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 60, height: 60)
+                            .background(Circle().fill(Color.accentColor))
+                    }
                 }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
         }
     }
     
@@ -355,39 +390,60 @@ private struct ItineraryListView: View {
     
     var body: some View {
         List {
-            if editMode == .active {
-                ForEach(stops) { stop in
-                    NavigationLink {
-                        StopDetailView(stop: stop, transportType: transportType)
-                    } label: {
-                        Text(stop.name)
-                            .font(.caption)
-                    }
-                }
-                .onDelete { indexSet in
-                    guard editMode == .active else { return }
-                    onDelete(indexSet)
-                }
-                .onMove { indexSet, destination in
-                    guard editMode == .active else { return }
-                    var newOrder = Array(stops)
-                    newOrder.move(fromOffsets: indexSet, toOffset: destination)
-                    for (idx, stop) in newOrder.enumerated() {
-                        if stop.orderIndex != idx {
-                            stop.orderIndex = idx
+            ForEach(Array(stops.enumerated()), id: \.element.persistentModelID) { index, stop in
+                NavigationLink {
+                    StopDetailView(stop: stop, transportType: transportType)
+                } label: {
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, alignment: .center)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(stop.name)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            HStack(spacing: 6) {
+                                Image(systemName: "mappin.fill").font(.caption2)
+                                Text(stop.categoryDisplayName)
+                                    .font(.caption)
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        HStack(spacing: 6) {
+                            if !stop.note.isEmpty {
+                                Image(systemName: "note.text")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(stop.durationFormatted)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.quaternary, in: Capsule())
                         }
                     }
                 }
-            } else {
-                ForEach(stops) { stop in
-                    NavigationLink {
-                        StopDetailView(stop: stop, transportType: transportType)
-                    } label: {
-                        Text(stop.name)
-                            .font(.caption)
+            }
+            .onDelete { indexSet in
+                onDelete(indexSet)
+            }
+            .onMove { indexSet, destination in
+                var newOrder = Array(stops)
+                newOrder.move(fromOffsets: indexSet, toOffset: destination)
+                for (idx, stop) in newOrder.enumerated() {
+                    if stop.orderIndex != idx {
+                        stop.orderIndex = idx
                     }
                 }
             }
+            .deleteDisabled(editMode == .inactive)
+            .moveDisabled(editMode == .inactive)
         }
         .environment(\.editMode, $editMode)
     }
@@ -446,11 +502,12 @@ private struct ETAHeaderView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Expected Travel Time")
+                    Text("Travel time")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Text(Duration.seconds(self.eta).formatted(.time(pattern: .hourMinute)))
-                        .font(.footnote)
+                        .font(.subheadline)
+                        .fontWeight(.bold)
                 }
                 Spacer(minLength: 0)
             }
@@ -463,9 +520,8 @@ private struct ETAHeaderView: View {
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(.regularMaterial)
         )
-        // Clip content to the rounded shape so it doesn't look like it's floating/overflowing
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
     
@@ -635,6 +691,125 @@ private struct SegmentCard: View {
     }
 }
 
+
+private struct TripOverviewView: View {
+    let stops: [Stop]
+    let eta: TimeInterval
+    let isLoading: Bool
+
+    private var totalStayMinutes: Int { stops.reduce(0) { $0 + $1.durationMinutes } }
+
+    private var formattedStay: String {
+        let h = totalStayMinutes / 60, m = totalStayMinutes % 60
+        if h == 0 { return "\(m)m" }
+        if m == 0 { return "\(h)h" }
+        return "\(h)h \(m)m"
+    }
+
+    private var formattedETA: String {
+        isLoading ? "—" : Duration.seconds(eta).formatted(.time(pattern: .hourMinute))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                // Stats row
+                HStack(spacing: 12) {
+                    OverviewStatCell(icon: "mappin.circle.fill", title: "Stops", value: "\(stops.count)")
+                    OverviewStatCell(icon: "clock.fill", title: "Stay", value: formattedStay)
+                    OverviewStatCell(icon: "car.fill", title: "Travel", value: formattedETA)
+                }
+
+                // Timeline
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(stops.enumerated()), id: \.element.persistentModelID) { index, stop in
+                        HStack(alignment: .top, spacing: 14) {
+                            // Timeline indicator column
+                            VStack(spacing: 0) {
+                                if index > 0 {
+                                    Rectangle()
+                                        .fill(Color.secondary.opacity(0.25))
+                                        .frame(width: 2, height: 12)
+                                } else {
+                                    Color.clear.frame(width: 2, height: 12)
+                                }
+
+                                ZStack {
+                                    Circle().fill(.tint).frame(width: 26, height: 26)
+                                    Text("\(index + 1)")
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white)
+                                }
+
+                                if index < stops.count - 1 {
+                                    Rectangle()
+                                        .fill(Color.secondary.opacity(0.25))
+                                        .frame(width: 2)
+                                        .frame(maxHeight: .infinity)
+                                }
+                            }
+                            .frame(width: 26)
+
+                            // Stop info
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(stop.name)
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.top, 2)
+
+                                HStack(spacing: 4) {
+                                    Image(systemName: "clock").font(.caption2)
+                                    Text(stop.durationFormatted).font(.caption)
+                                    if stop.categoryDisplayName != "—" {
+                                        Text("·").foregroundStyle(.tertiary)
+                                        Text(stop.categoryDisplayName).font(.caption)
+                                    }
+                                }
+                                .foregroundStyle(.secondary)
+
+                                if let addr = stop.addressRaw {
+                                    Text(addr)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .padding(.bottom, 18)
+
+                            Spacer()
+                        }
+                    }
+                }
+                .padding(16)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(16)
+        }
+    }
+}
+
+private struct OverviewStatCell: View {
+    let icon: String
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 22))
+                .foregroundStyle(.tint)
+            Text(value)
+                .font(.system(size: 15, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
 
 #Preview("TripDetail - without stops") {
     let trip = Trip(title: "Demo", startDate: Date(), endDate: Date(), numDays: 1)

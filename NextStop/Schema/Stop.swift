@@ -11,6 +11,14 @@ import CoreLocation
 import MapKit
 
 @Model
+final class StopPhoto {
+    @Attribute(.externalStorage) var imageData: Data
+    var stop: Stop?
+
+    init(imageData: Data) { self.imageData = imageData }
+}
+
+@Model
 final class Stop {
     var name: String
     var latitude: Double
@@ -22,21 +30,44 @@ final class Stop {
     var categoryRawValue: String?
     var note: String = ""
     var addressRaw: String?
-    
+    var durationMinutes: Int = 60
+
+    @Relationship(deleteRule: .cascade, inverse: \StopPhoto.stop)
+    var photos: [StopPhoto] = []
+
     @Relationship(inverse: \Trip.stops)
     var trip: Trip?
-    
-    //  let MapKit can use the map attribute
+
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
-    
+
     var category: MKPointOfInterestCategory? {
-        get {categoryRawValue.map {MKPointOfInterestCategory(rawValue: $0)}}
-        set {categoryRawValue = newValue?.rawValue}
+        get { categoryRawValue.map { MKPointOfInterestCategory(rawValue: $0) } }
+        set { categoryRawValue = newValue?.rawValue }
     }
-    
-    init(name: String, latitude: Double, longitude: Double, dayNumber: Int=1, orderIndex: Int=0, trip: Trip? = nil, phoneNumber: String? = nil, url: URL? = nil, category: MKPointOfInterestCategory? = nil, address: String?) {
+
+    var categoryDisplayName: String {
+        guard let raw = categoryRawValue else { return "—" }
+        let stripped = raw.replacingOccurrences(of: "MKPOICategory", with: "")
+        guard !stripped.isEmpty else { return "—" }
+        var result = ""
+        for (i, char) in stripped.enumerated() {
+            if char.isUppercase && i > 0 { result += " " }
+            result.append(char)
+        }
+        return result
+    }
+
+    var durationFormatted: String {
+        let hours = durationMinutes / 60
+        let mins = durationMinutes % 60
+        if hours == 0 { return "\(mins) min" }
+        if mins == 0 { return "\(hours) hr" }
+        return "\(hours) hr \(mins) min"
+    }
+
+    init(name: String, latitude: Double, longitude: Double, dayNumber: Int = 1, orderIndex: Int = 0, trip: Trip? = nil, phoneNumber: String? = nil, url: URL? = nil, category: MKPointOfInterestCategory? = nil, address: String?) {
         self.name = name
         self.latitude = latitude
         self.longitude = longitude

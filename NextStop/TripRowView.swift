@@ -18,18 +18,24 @@ struct TripRowView: View {
             
             HStack {
                 Image(systemName: "calendar").font(.caption)
-                Text(trip.startDate.formatted(date: .numeric, time: .omitted)).font(.subheadline)
-                Text("~").font(.subheadline)
-                Text(trip.endDate.formatted(date: .numeric, time: .omitted)).font(.subheadline)
+                Text(trip.startDate.formatted(date: .abbreviated, time: .omitted)).font(.subheadline)
+                Text("–").font(.subheadline)
+                Text(trip.endDate.formatted(date: .abbreviated, time: .omitted)).font(.subheadline)
             
                 Spacer()
-                
-                Text("\(trip.stops.count) stops")
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(Color.blue.opacity(0.1))
-                    .clipShape(Capsule())
+
+                if trip.stops.count > 0 {
+                    Text("\(trip.stops.count) stops")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.1))
+                        .clipShape(Capsule())
+                } else {
+                    Text("No stops yet")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .foregroundStyle(.secondary)
         }

@@ -46,8 +46,8 @@ struct LocationCardView: View {
                 }
 
                 HStack(spacing: 6) {
-                    Image(systemName: "tag.fill")
-                    Text(stop.categoryRawValue?.replacingOccurrences(of: "MKPOICategory", with: "") ?? "—")
+                    Image(systemName: "building.2.fill")
+                    Text(stop.categoryDisplayName)
                 }
                 .lineLimit(1)
                 .font(.system(size: 12, weight: .regular))
@@ -150,7 +150,7 @@ struct NavigationView : View {
                 let destItem = makeMKMapItem(from: dest)
                 launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportMode.mkType)
             } label: {
-                VStack {
+                VStack(spacing: 5) {
                     Image(systemName: "app.connected.to.app.below.fill")
                         .font(.system(size: 24))
                         .foregroundStyle(.tint)

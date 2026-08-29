@@ -11,134 +11,158 @@ import MapKit
 
 struct AddStopSearchView: View {
     @Environment(\.dismiss) private var dismiss
-    
+
     @State private var query: String = ""
     @State private var results: [MKMapItem] = []
     @State private var isSearching: Bool = false
-    
     @State private var selectedItem: MKMapItem?
     @State private var cameraPosition: MapCameraPosition = .automatic
-    
+
     var onConfirm: (MKMapItem) -> Void
-    
+
     var body: some View {
-        VStack {
-            HStack {
-                TextField("Search place", text: $query)
-                    .textFieldStyle(.roundedBorder)
+        VStack(spacing: 0) {
+            // Search bar
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search for a place...", text: $query)
                     .submitLabel(.search)
-                    .onSubmit {
-                        Task {await performSearch()}
-                    }
-                
+                    .onSubmit { Task { await performSearch() } }
                 if isSearching {
-                    ProgressView()
-                        .padding(.leading, 4)
-                } else {
-                    Button("Search") {
-                        Task {await performSearch()}
+                    ProgressView().scaleEffect(0.85)
+                } else if !query.isEmpty {
+                    Button {
+                        query = ""
+                        results = []
+                        selectedItem = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-            .padding(.horizontal)
-            .padding(.top)
-            .background(.thinMaterial)
-            
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
             Divider()
-            
-            Group {
-                if let item = selectedItem{
-                    let coordinate = item.location.coordinate
-                    Map(position: $cameraPosition, interactionModes: .all) {
-                        Annotation(item.name ?? "Selected", coordinate: coordinate) {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.title)
-                                .foregroundStyle(.red)
-                        }
+
+            if results.isEmpty {
+                if isSearching {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if query.isEmpty {
+                    // Hint state
+                    VStack(spacing: 12) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 44))
+                            .foregroundStyle(.quaternary)
+                        Text("Search for a place to add to your trip")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
                     }
-                    
-                    List(results, id: \.self) { item in
-                        Button {
-                            selectedItem = item
-                            cameraPosition = .region(
-                                MKCoordinateRegion(
-                                    center: item.location.coordinate,
-                                    span: MKCoordinateSpan(
-                                        latitudeDelta: 0.05, longitudeDelta: 0.05)
-                                )
-                            )
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    //  location name
-                                    Text(item.name ?? "Unknown")
-                                        .font(.headline)
-                                    
-                                    //  location address
-                                    Text(item.address?.fullAddress ?? "Unknown")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // No results
+                    ContentUnavailableView(
+                        "No Results",
+                        systemImage: "mappin.slash",
+                        description: Text("Try searching with a different keyword")
+                    )
+                }
+            } else {
+                // Map preview
+                if let item = selectedItem {
+                    Map(position: $cameraPosition, interactionModes: .all) {
+                        Marker(item.name ?? "Selected", coordinate: item.location.coordinate)
+                    }
+                    .frame(height: 180)
+                }
+
+                // Results list — tap to select, no inline "Add" button
+                List(results, id: \.self) { item in
+                    Button {
+                        selectedItem = item
+                        cameraPosition = .region(MKCoordinateRegion(
+                            center: item.location.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                        ))
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.name ?? "Unknown")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.primary)
+                                if let addr = item.address?.fullAddress {
+                                    Text(addr)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
-                                    
-                                }
-                                .padding()
-                                
-                                Spacer()
-                                
-                                Button("Add") {
-                                    onConfirm(item)
-                                    dismiss()
+                                        .lineLimit(1)
                                 }
                             }
-                            
+                            Spacer()
+                            if selectedItem === item {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.tint)
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
                         }
                     }
-                } else {
-                    Spacer(minLength: 0)
+                    .listRowBackground(
+                        selectedItem === item
+                            ? Color.accentColor.opacity(0.08)
+                            : Color.clear
+                    )
+                }
+                .listStyle(.plain)
+
+                // Confirm button — only appears when a place is selected
+                if let item = selectedItem {
+                    Button {
+                        onConfirm(item)
+                        dismiss()
+                    } label: {
+                        Text("Add \(item.name ?? "Place")")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(.bar)
                 }
             }
         }
     }
-    
+
     private func performSearch() async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        
-        await MainActor.run {
-            isSearching = true
-        }
-        
-        defer {
-            Task { @MainActor in
-                isSearching = false
-            }
-        }
-        
+
+        await MainActor.run { isSearching = true }
+        defer { Task { @MainActor in isSearching = false } }
+
         do {
-            //  1. request
             let request = MKLocalSearch.Request()
             request.naturalLanguageQuery = trimmed
-            
-            //  2. create MKLocalSearch and execute
-            let search = MKLocalSearch(request: request)
-            let response = try await search.start()
-            
+            let response = try await MKLocalSearch(request: request).start()
             let items = response.mapItems
-            
-            await MainActor.run {
-                //  3. update state and UI
-                self.results = items
 
+            await MainActor.run {
+                self.results = items
                 if let first = items.first {
                     self.selectedItem = first
-                    
-                    //  update cameraPosition
-                    let coor = first.location.coordinate
-                    self.cameraPosition = .region(
-                        MKCoordinateRegion(
-                            center: coor,
-                            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-                        )
-                    )
+                    self.cameraPosition = .region(MKCoordinateRegion(
+                        center: first.location.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                    ))
                 } else {
                     self.selectedItem = nil
                 }

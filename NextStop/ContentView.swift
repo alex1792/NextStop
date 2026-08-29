@@ -20,7 +20,6 @@ struct ContentView: View {
     @State private var numDays: Int = 1
     @State private var showAlert: Bool = false
     @State private var selectedTrip: Trip? = nil
-    @State private var showingEditTripSheet: Bool = false
     
     var body: some View {
         NavigationStack {
@@ -44,7 +43,6 @@ struct ContentView: View {
                             .swipeActions(edge: .leading) {
                                 Button {
                                     selectedTrip = trip
-//                                    showingEditTripSheet = true
                                 } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }
@@ -52,9 +50,12 @@ struct ContentView: View {
                         }
                         .onDelete(perform: deleteTrips)
                     }
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: 80)
+                    }
                 }
             }
-            .navigationTitle("Next Stop📍")
+            .navigationTitle("Next Stop")
             .overlay(alignment: .bottomTrailing) {
                 Button(action: { showingAddTripSheet = true }) {
                     Image(systemName: "plus")
