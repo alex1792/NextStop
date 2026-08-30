@@ -249,21 +249,12 @@ struct StopDetailView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .fullScreenCover(item: $selectedPhoto) { photo in
-            if let uiImage = UIImage(data: photo.imageData) {
-                ZStack(alignment: .topTrailing) {
-                    Color.black.ignoresSafeArea()
-                    ZoomableImageView(image: uiImage)
-                        .ignoresSafeArea()
-                    Button { selectedPhoto = nil } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 30))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .black.opacity(0.5))
-                            .padding(20)
-                    }
-                }
-                .preferredColorScheme(.dark)
-            }
+            PhotoGalleryView(
+                photos: stop.photos,
+                initialPhoto: photo,
+                onDismiss: { selectedPhoto = nil }
+            )
+            .preferredColorScheme(.dark)
         }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -274,8 +265,76 @@ struct StopDetailView: View {
     }
 }
 
-private struct ZoomableImageView: UIViewRepresentable {
+private struct PhotoGalleryView: View {
+    let photos: [StopPhoto]
+    let initialPhoto: StopPhoto
+    let onDismiss: () -> Void
+
+    @State private var currentIndex: Int
+
+    init(photos: [StopPhoto], initialPhoto: StopPhoto, onDismiss: @escaping () -> Void) {
+        self.photos = photos
+        self.initialPhoto = initialPhoto
+        self.onDismiss = onDismiss
+        let idx = photos.firstIndex(where: { $0.persistentModelID == initialPhoto.persistentModelID }) ?? 0
+        self._currentIndex = State(initialValue: idx)
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+
+            TabView(selection: $currentIndex) {
+                ForEach(Array(photos.enumerated()), id: \.element.persistentModelID) { index, photo in
+                    if let uiImage = UIImage(data: photo.imageData) {
+                        ZoomableImageView(image: uiImage)
+                            .tag(index)
+                    } else {
+                        Color.black.tag(index)
+                    }
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
+
+            // Top bar: close + counter
+            HStack {
+                Button { onDismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 28))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .black.opacity(0.5))
+                }
+                Spacer()
+                if photos.count > 1 {
+                    Text("\(currentIndex + 1) / \(photos.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(.black.opacity(0.4), in: Capsule())
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+        }
+    }
+}
+
+// SwiftUI wrapper: uses GeometryReader so UIScrollView always receives a non-zero size
+private struct ZoomableImageView: View {
     let image: UIImage
+
+    var body: some View {
+        GeometryReader { geo in
+            ZoomableScrollView(image: image, size: geo.size)
+        }
+    }
+}
+
+private struct ZoomableScrollView: UIViewRepresentable {
+    let image: UIImage
+    let size: CGSize
 
     func makeUIView(context: Context) -> UIScrollView {
         let scrollView = UIScrollView()
@@ -296,9 +355,12 @@ private struct ZoomableImageView: UIViewRepresentable {
     }
 
     func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        guard size.width > 0, size.height > 0 else { return }
         guard let imageView = scrollView.viewWithTag(100) as? UIImageView else { return }
-        imageView.frame = scrollView.bounds
-        scrollView.contentSize = scrollView.bounds.size
+        let target = CGRect(origin: .zero, size: size)
+        guard imageView.frame != target else { return }
+        imageView.frame = target
+        scrollView.contentSize = size
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
