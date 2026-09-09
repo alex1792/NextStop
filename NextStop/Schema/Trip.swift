@@ -19,6 +19,8 @@ final class Trip {
     
     @Relationship(deleteRule: .cascade)
     var stops: [Stop] = []
+    var daySummary: [DaySummary] = []
+    
     
     init(title: String, startDate: Date=Date(), endDate: Date=Date(), numDays: Int=1) {
         self.title = title

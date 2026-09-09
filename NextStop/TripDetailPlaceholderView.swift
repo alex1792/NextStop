@@ -9,6 +9,7 @@ import SwiftData
 import MapKit
 import Observation
 
+//  MARK: - RouteViewModel
 @Observable
 @MainActor
 class RouteViewModel {
@@ -129,7 +130,7 @@ class RouteViewModel {
     }
 }
 
-
+//  MARK: - TripDetailPlaceholderView
 struct TripDetailPlaceholderView: View {
     let trip: Trip
     let selectedDay: Int?
@@ -240,14 +241,12 @@ struct TripDetailPlaceholderView: View {
                     
                     ETAHeaderView(eta: self.viewModel.ETA, isLoading: self.viewModel.isLoading, transportType: $transportType)
                     
-//                    Spacer().frame(maxWidth: .infinity, maxHeight: 5)
                     
                     TabView(selection: $selection) {
                         Tab("Itinerary", systemImage:"text.page.fill", value: 0){
                             ItineraryListView(stops: stops, editMode: $editMode, transportType: transportType, onRecalculate: {
                                 viewModel.calculateRoutes(from: stops, transportType: transportType)
                             }, onDelete: deleteStop, selectedDay: selectedDay)
-//                            .onAppear {editMode = .active}
                         }
                         
                         Tab("Segments", systemImage: "map.fill", value: 1){
@@ -260,6 +259,7 @@ struct TripDetailPlaceholderView: View {
                         Tab("Overview", systemImage: "list.clipboard", value: 2) {
                             TripOverviewView(
                                 stops: stops,
+                                summary: trip.daySummary.first(where: { $0.dayNumber == selectedDay }),
                                 eta: viewModel.ETA,
                                 isLoading: viewModel.isLoading
                             )
@@ -272,7 +272,6 @@ struct TripDetailPlaceholderView: View {
                 }
             }
         }
-//        .navigationTitle(selectedDay != nil ? "Day \(selectedDay!)" : trip.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -369,6 +368,7 @@ struct TripDetailPlaceholderView: View {
     }
 }
 
+//  MARK: - RouteInput
 private struct RouteInput: Equatable {
     let coords: [String]
     let transportType: MKDirectionsTransportType
@@ -379,6 +379,7 @@ private struct RouteInput: Equatable {
     }
 }
 
+//  MARK: - ItineraryListView
 private struct ItineraryListView: View {
     let stops: [Stop]
     @Binding var editMode: EditMode
@@ -449,7 +450,7 @@ private struct ItineraryListView: View {
     }
 }
 
-
+//  MARK: - ETAHeaderView
 private struct ETAHeaderView: View {
     let eta: TimeInterval
     let isLoading: Bool
@@ -537,24 +538,15 @@ private struct ETAHeaderView: View {
     }
 }
 
+//  MARK: - SegmentNavigationView
 private struct SegmentNavigationView: View {
     var stops: [Stop]
     var transportType: MKDirectionsTransportType
     let onSelect: (Int) -> Void
     
     var body: some View {
-//        let segmentIndices = Array(1..<stops.count)
-        
         ScrollView {
             VStack(spacing: 12) {
-//                ForEach(segmentIndices, id: \.self) { i in
-//                    SegmentCard(
-//                        source: stops[i - 1],
-//                        dest: stops[i],
-//                        transportType: transportType,
-//                        onSelect: { onSelect(i - 1) }
-//                    )
-//                }
                 let locationCardIndices = 1..<stops.count
                 
                 LocationCardView(stop: stops[0], transportType: transportType)
@@ -569,6 +561,7 @@ private struct SegmentNavigationView: View {
     }
 }
 
+//  MARK: - SegmentCard
 private struct SegmentCard: View {
     let source: Stop
     let dest: Stop
@@ -691,9 +684,10 @@ private struct SegmentCard: View {
     }
 }
 
-
+//  MARK: - TripOverviewView
 private struct TripOverviewView: View {
     let stops: [Stop]
+    let summary: DaySummary?
     let eta: TimeInterval
     let isLoading: Bool
 
@@ -719,6 +713,24 @@ private struct TripOverviewView: View {
                     OverviewStatCell(icon: "clock.fill", title: "Stay", value: formattedStay)
                     OverviewStatCell(icon: "car.fill", title: "Travel", value: formattedETA)
                 }
+                
+                //  DaySummary
+                if let summary {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Day Summary")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                    
+                        Text(summary.summary)
+                            .font(.subheadline)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                
 
                 // Timeline
                 VStack(alignment: .leading, spacing: 0) {
@@ -787,6 +799,7 @@ private struct TripOverviewView: View {
     }
 }
 
+//  MARK: - OverviewStatCell
 private struct OverviewStatCell: View {
     let icon: String
     let title: String

@@ -14,6 +14,7 @@ struct ContentView: View {
     @Query(sort: \Trip.startDate, order: .forward) private var trips: [Trip]
     
     @State private var showingAddTripSheet = false
+    @State private var showingChatSheet = false
     @State private var newTripTitle = ""
     @State private var startDate: Date = Date()
     @State private var endDate: Date = Date()
@@ -56,6 +57,18 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Next Stop")
+            .overlay(alignment: .bottomLeading) {
+                Button(action: {showingChatSheet = true}) {
+                    Image(systemName: "ellipsis.message.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(20)
+                        .background(Circle().fill(Color.accentColor))
+                        .shadow(radius: 4)
+                }
+                .padding(.leading, 24)
+                .padding(.bottom, 24)
+            }
             .overlay(alignment: .bottomTrailing) {
                 Button(action: { showingAddTripSheet = true }) {
                     Image(systemName: "plus")
@@ -133,6 +146,9 @@ struct ContentView: View {
             .sheet(item: $selectedTrip) { trip in
                 EditTripSheet(trip: trip)
             }
+            .sheet(isPresented: $showingChatSheet) {
+                AIGeneratorSheet()
+            }
         }
     }
     
@@ -206,6 +222,7 @@ struct EditTripSheet: View {
         .presentationDetents([.medium])
     }
 }
+
 
 #Preview {
     ContentView()
