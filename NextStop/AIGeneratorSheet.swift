@@ -119,10 +119,16 @@ struct AIGeneratorSheet: View {
     }
 
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            TextField("e.g. 5 days in Tokyo...", text: $promptText, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...4)
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField("Describe your trip...", text: $promptText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...5)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(.systemGray6))
+                )
                 .disabled(generator.isGenerating)
 
             Button {
@@ -132,16 +138,18 @@ struct AIGeneratorSheet: View {
                 Task { await generator.send(prompt: prompt) }
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 32))
+                    .font(.system(size: 30))
                     .foregroundStyle(
                         promptText.trimmingCharacters(in: .whitespaces).isEmpty || generator.isGenerating
-                            ? AnyShapeStyle(.secondary)
-                            : AnyShapeStyle(.tint)
+                            ? AnyShapeStyle(.tertiary)
+                            : AnyShapeStyle(Color.accentColor)
                     )
             }
             .disabled(promptText.trimmingCharacters(in: .whitespaces).isEmpty || generator.isGenerating)
+            .animation(.easeInOut(duration: 0.15), value: promptText.isEmpty)
         }
-        .padding()
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 }
 
@@ -234,4 +242,8 @@ struct TripPreviewCard: View {
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
+}
+
+#Preview {
+    AIGeneratorSheet()
 }

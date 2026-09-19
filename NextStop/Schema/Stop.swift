@@ -31,6 +31,7 @@ final class Stop {
     var note: String = ""
     var addressRaw: String?
     var durationMinutes: Int = 60
+    var preferedTransportTypeRawValue: String?
 
     @Relationship(deleteRule: .cascade, inverse: \StopPhoto.stop)
     var photos: [StopPhoto] = []
@@ -45,6 +46,16 @@ final class Stop {
     var category: MKPointOfInterestCategory? {
         get { categoryRawValue.map { MKPointOfInterestCategory(rawValue: $0) } }
         set { categoryRawValue = newValue?.rawValue }
+    }
+
+    //  the transport mode used to travel from the previous stop to this one;
+    //  nil means "inherit the day's default mode" rather than a fixed override
+    var preferredTransportType: MKDirectionsTransportType? {
+        get {
+            guard let raw = preferedTransportTypeRawValue, let rawValue = UInt(raw) else { return nil }
+            return MKDirectionsTransportType(rawValue: rawValue)
+        }
+        set { preferedTransportTypeRawValue = newValue.map { String($0.rawValue) } }
     }
 
     var categoryDisplayName: String {

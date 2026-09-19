@@ -9,10 +9,19 @@ import SwiftUI
 import SwiftData
 import MapKit
 
+//  shared by ContentView.addTrip() and EditTripSheet so both stay in sync
+func computeNumDays(start: Date, end: Date) -> Int {
+    let calendar = Calendar.current
+    let startOfStart = calendar.startOfDay(for: start)
+    let startOfEnd = calendar.startOfDay(for: end)
+    let diff = calendar.dateComponents([.day], from: startOfStart, to: startOfEnd).day ?? 0
+    return max(0, diff) + 1
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Trip.startDate, order: .forward) private var trips: [Trip]
-    
+
     @State private var showingAddTripSheet = false
     @State private var showingChatSheet = false
     @State private var newTripTitle = ""
@@ -21,6 +30,8 @@ struct ContentView: View {
     @State private var numDays: Int = 1
     @State private var showAlert: Bool = false
     @State private var selectedTrip: Trip? = nil
+    @State private var pendingDeleteOffsets: IndexSet? = nil
+    @State private var showDeleteTripConfirm = false
     
     var body: some View {
         NavigationStack {
@@ -28,9 +39,9 @@ struct ContentView: View {
                 //  if there is no trip data found, display the following section
                 if trips.isEmpty {
                     ContentUnavailableView(
-                        "No Trips Found",
+                        "No Trips Yet",
                         systemImage: "map",
-                        description: Text("Click the + button at top to create a new trip!")
+                        description: Text("Tap \(Image(systemName: "plus")) to plan a new trip.\nOr tap \(Image(systemName: "ellipsis.message.fill")) to let AI build one for you.")
                     )
                 } else {
                     //  show all the trips data found
@@ -49,7 +60,10 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .onDelete(perform: deleteTrips)
+                        .onDelete { offsets in
+                            pendingDeleteOffsets = offsets
+                            showDeleteTripConfirm = true
+                        }
                     }
                     .safeAreaInset(edge: .bottom) {
                         Color.clear.frame(height: 80)
@@ -149,6 +163,23 @@ struct ContentView: View {
             .sheet(isPresented: $showingChatSheet) {
                 AIGeneratorSheet()
             }
+            .confirmationDialog(
+                "Delete this trip?",
+                isPresented: $showDeleteTripConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let offsets = pendingDeleteOffsets {
+                        deleteTrips(offsets: offsets)
+                    }
+                    pendingDeleteOffsets = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingDeleteOffsets = nil
+                }
+            } message: {
+                Text("This will permanently delete all stops and photos in this trip. This cannot be undone.")
+            }
         }
     }
     
@@ -181,20 +212,14 @@ struct ContentView: View {
             }
         }
     }
-    
-    private func computeNumDays(start: Date, end: Date) -> Int {
-        let calendar = Calendar.current
-        let startOfStart = calendar.startOfDay(for: start)
-        let startOfEnd = calendar.startOfDay(for: end)
-        let diff = calendar.dateComponents([.day], from: startOfStart, to: startOfEnd).day ?? 0
-        return max(0, diff) + 1
-    }
 }
 
+//  MARK: - EditTripSheet
 struct EditTripSheet: View {
     @Bindable var trip: Trip
     @Environment(\.dismiss) private var dismiss
-    
+    @Environment(\.modelContext) private var modelContext
+
     var body: some View {
         NavigationStack {
             Form {
@@ -207,8 +232,12 @@ struct EditTripSheet: View {
                             if trip.endDate < newStartDate {
                                 trip.endDate = newStartDate
                             }
+                            updateNumDays(start: newStartDate, end: trip.endDate)
                         }
                     DatePicker("End Date", selection: $trip.endDate, in: trip.startDate..., displayedComponents: .date)
+                        .onChange(of: trip.endDate) { _, newEndDate in
+                            updateNumDays(start: trip.startDate, end: newEndDate)
+                        }
                 }
             }
             .navigationTitle("Edit Trip")
@@ -220,6 +249,21 @@ struct EditTripSheet: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    //  shrinking the trip drops stops/day-summaries beyond the new range;
+    //  growing it needs no extra work since DayView renders 1...numDays on its own
+    private func updateNumDays(start: Date, end: Date) {
+        let newNumDays = computeNumDays(start: start, end: end)
+        if newNumDays < trip.numDays {
+            for stop in trip.stops where stop.dayNumber > newNumDays {
+                modelContext.delete(stop)
+            }
+            for summary in trip.daySummary where summary.dayNumber > newNumDays {
+                modelContext.delete(summary)
+            }
+        }
+        trip.numDays = newNumDays
     }
 }
 

@@ -19,6 +19,8 @@ final class Trip {
     
     @Relationship(deleteRule: .cascade)
     var stops: [Stop] = []
+    
+    @Relationship(deleteRule: .cascade)
     var daySummary: [DaySummary] = []
     
     

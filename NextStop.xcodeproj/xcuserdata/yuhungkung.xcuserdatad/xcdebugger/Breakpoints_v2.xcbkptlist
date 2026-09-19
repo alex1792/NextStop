@@ -46,9 +46,9 @@
             filePath = "NextStop/TripDetailPlaceholderView.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "106"
-            endingLineNumber = "106"
-            landmarkName = "calculateRoutes(from:transportType:)"
+            startingLineNumber = "109"
+            endingLineNumber = "109"
+            landmarkName = "calculateRoutes(from:transportTypes:)"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>

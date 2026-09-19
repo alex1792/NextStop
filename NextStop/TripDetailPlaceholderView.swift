@@ -21,8 +21,8 @@ class RouteViewModel {
     // Tracking and Canceling the tasks in queue
     private var routingTask: Task<Void, Never>?
     
-    func calculateRoutes(from stops: [Stop], transportType: MKDirectionsTransportType = .automobile) {
-        guard stops.count >= 2 else {
+    func calculateRoutes(from stops: [Stop], transportTypes: [MKDirectionsTransportType]) {
+        guard stops.count >= 2, transportTypes.count == stops.count - 1 else {
             self.polylines = []
             self.totalMapRect = .null
             return
@@ -52,25 +52,31 @@ class RouteViewModel {
                 
                 let results: [SegmentResult] = await withTaskGroup(of: SegmentResult?.self) { group in
                     for i in 1..<stops.count {
-                        let MKDInstance = getMKDirectionsRequest(from: stops[i-1], to: stops[i], transport_type: transportType, time_interval: 0)
-                        
+                        let legType = transportTypes[i - 1]
+                        let MKDInstance = getMKDirectionsRequest(from: stops[i-1], to: stops[i], transport_type: legType, time_interval: 0)
+
                         group.addTask {
-                            if transportType == .transit {
-                                return nil
-                            }
-                            
                             // check TaskGroup internally, if its canceled, then terminate
                             if Task.isCancelled { return nil }
-                            
+
                             let clock1 = ContinuousClock()
                             let start1 = clock1.now
-                            
+
                             do {
+                                // Transit routes aren't reliably returned as drawable
+                                // geometry via MKDirections in-app, so this leg only
+                                // fetches an ETA and contributes no polyline — the
+                                // other legs still get a normal route + polyline.
+                                if legType == .transit {
+                                    let eta = try await MKDInstance.calculateETA().expectedTravelTime
+                                    return SegmentResult(index: i - 1, polyline: nil, eta: eta)
+                                }
+
                                 let response = try await MKDInstance.calculate()
                                 let elapsed1 = start1.duration(to: clock1.now)
                                 let eta = try await MKDInstance.calculateETA().expectedTravelTime
                                 print("Segment \(i) took: \(elapsed1)")
-                                
+
                                 return SegmentResult(index: i - 1, polyline: response.routes.first?.polyline, eta: eta)
                             } catch {
                                 print("MKDirections Request failed: \(error)")
@@ -78,30 +84,20 @@ class RouteViewModel {
                             }
                         }
                     }
-                    
+
                     var results = [SegmentResult]()
-                    for await polyline in group {
-                        if let polyline { results.append(polyline) }
+                    for await result in group {
+                        if let result { results.append(result) }
                     }
                     return results
                 }
-                
+
                 //  sort the polylines based on segment index
                 self.polylines = results.sorted{$0.index < $1.index}.compactMap{$0.polyline}
                 print("Polylines are Sorted...")
-                
+
                 // 5. Make sure before updating UI, the task is not canceled at the last minute
                 guard !Task.isCancelled else { return }
-                
-                //  check if transport type is .transit, then launch apple maps
-                if transportType == .transit
-                {
-                    //  calculate ETA
-                    self.ETA = await getETAs(from: stops, transport_type: transportType)
-                    
-                    self.isLoading = false
-                    return
-                }
 
                 self.ETA = results.reduce(0) { $0 + $1.eta }
                 if !self.polylines.isEmpty {
@@ -167,7 +163,14 @@ struct TripDetailPlaceholderView: View {
         }
         return viewModel.totalMapRect
     }
-    
+
+    //  one entry per leg (stops[i-1] -> stops[i]); a stop's own override wins,
+    //  otherwise it falls back to this day's default `transportType`
+    private var perLegTransportTypes: [MKDirectionsTransportType] {
+        guard stops.count >= 2 else { return [] }
+        return stops.dropFirst().map { $0.preferredTransportType ?? transportType }
+    }
+
     private var shareText: String {
         var lines: [String] = [trip.title]
 
@@ -245,10 +248,10 @@ struct TripDetailPlaceholderView: View {
                     TabView(selection: $selection) {
                         Tab("Itinerary", systemImage:"text.page.fill", value: 0){
                             ItineraryListView(stops: stops, editMode: $editMode, transportType: transportType, onRecalculate: {
-                                viewModel.calculateRoutes(from: stops, transportType: transportType)
+                                viewModel.calculateRoutes(from: stops, transportTypes: perLegTransportTypes)
                             }, onDelete: deleteStop, selectedDay: selectedDay)
                         }
-                        
+
                         Tab("Segments", systemImage: "map.fill", value: 1){
                             Spacer().frame(height: 12)
 
@@ -267,8 +270,8 @@ struct TripDetailPlaceholderView: View {
                         }
                     }
                 }
-                .task(id: RouteInput(stops: stops, transportType: transportType)) {
-                    viewModel.calculateRoutes(from: stops, transportType: transportType)
+                .task(id: RouteInput(stops: stops, transportTypes: perLegTransportTypes)) {
+                    viewModel.calculateRoutes(from: stops, transportTypes: perLegTransportTypes)
                 }
             }
         }
@@ -371,11 +374,11 @@ struct TripDetailPlaceholderView: View {
 //  MARK: - RouteInput
 private struct RouteInput: Equatable {
     let coords: [String]
-    let transportType: MKDirectionsTransportType
-    
-    init(stops: [Stop], transportType: MKDirectionsTransportType) {
+    let transportTypes: [MKDirectionsTransportType]
+
+    init(stops: [Stop], transportTypes: [MKDirectionsTransportType]) {
         self.coords = stops.map { "\($0.latitude),\($0.longitude)" }
-        self.transportType = transportType
+        self.transportTypes = transportTypes
     }
 }
 
@@ -386,9 +389,12 @@ private struct ItineraryListView: View {
     let transportType: MKDirectionsTransportType
     let onRecalculate: () -> Void
     let onDelete: (IndexSet) -> Void
-    
+
     let selectedDay: Int?
-    
+
+    @State private var pendingDeleteOffsets: IndexSet? = nil
+    @State private var showDeleteConfirm = false
+
     var body: some View {
         List {
             ForEach(Array(stops.enumerated()), id: \.element.persistentModelID) { index, stop in
@@ -432,7 +438,8 @@ private struct ItineraryListView: View {
                 }
             }
             .onDelete { indexSet in
-                onDelete(indexSet)
+                pendingDeleteOffsets = indexSet
+                showDeleteConfirm = true
             }
             .onMove { indexSet, destination in
                 var newOrder = Array(stops)
@@ -447,6 +454,23 @@ private struct ItineraryListView: View {
             .moveDisabled(editMode == .inactive)
         }
         .environment(\.editMode, $editMode)
+        .confirmationDialog(
+            "Delete this stop?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let offsets = pendingDeleteOffsets {
+                    onDelete(offsets)
+                }
+                pendingDeleteOffsets = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteOffsets = nil
+            }
+        } message: {
+            Text("This will remove the stop from your itinerary. This cannot be undone.")
+        }
     }
 }
 
@@ -481,6 +505,12 @@ private struct ETAHeaderView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            Text("Default mode — legs in Segments can override this")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+
             Picker("Travel Mode", selection: selectionBinding) {
                 Image(systemName: symbolName(for: .automobile)).tag(0)
                 Image(systemName: symbolName(for: .walking)).tag(1)
@@ -489,7 +519,7 @@ private struct ETAHeaderView: View {
             }
             .pickerStyle(.segmented) // 💡 讓它變成完全扁平的橫向切換鈕
             .padding(.horizontal, 8)
-            .padding(.top, 12)       // 調整留白，避免頂部過擠
+            .padding(.top, 4)
             .padding(.bottom, 8)
 
             Divider()
@@ -552,8 +582,8 @@ private struct SegmentNavigationView: View {
                 LocationCardView(stop: stops[0], transportType: transportType)
                 
                 ForEach(locationCardIndices, id: \.self) { i in
-                    NavigationView(source: stops[i - 1], dest: stops[i])
-                    
+                    NavigationView(source: stops[i - 1], dest: stops[i], defaultTransportType: transportType)
+
                     LocationCardView(stop: stops[i], transportType: transportType)
                 }
             }

@@ -9,25 +9,6 @@ import SwiftUI
 import SwiftData
 import MapKit
 
-struct SegmentView: View {
-    let stops: [Stop]
-    let transportType: MKDirectionsTransportType = .automobile
-
-    var body: some View {
-        if !stops.isEmpty {
-            let locationCardIndices = 1..<stops.count
-
-            LocationCardView(stop: stops[0], transportType: transportType)
-
-            ForEach(locationCardIndices, id: \.self) { i in
-                NavigationView(source: stops[i - 1], dest: stops[i])
-
-                LocationCardView(stop: stops[i], transportType: transportType)
-            }
-        }
-    }
-}
-
 struct LocationCardView: View {
     let stop: Stop
     let transportType: MKDirectionsTransportType
@@ -75,53 +56,66 @@ struct LocationCardView: View {
     }
 }
 
-struct NavigationView : View {
+//  the 4 selectable modes for a single leg, in menu display order
+private let legTransportChoices: [MKDirectionsTransportType] = [.automobile, .walking, .cycling, .transit]
+
+private func legTransportLabel(for type: MKDirectionsTransportType) -> String {
+    switch type {
+    case .automobile: return "Driving"
+    case .walking:     return "Walking"
+    case .cycling:     return "Cycling"
+    case .transit:     return "Transit"
+    default:           return "Driving"
+    }
+}
+
+struct NavigationView: View {
     var source: Stop
     var dest: Stop
-    
-    
-    enum TransportMode: CaseIterable, Hashable {
-        case driving, walking, cycling, transit
-        
-        var mkType: MKDirectionsTransportType {
-            switch self {
-            case .driving: return MKDirectionsTransportType.automobile
-            case .walking: return MKDirectionsTransportType.walking
-            case .cycling: return MKDirectionsTransportType.cycling
-            case .transit: return MKDirectionsTransportType.transit
-            }
-        }
-        
-        var label: String {
-            switch self {
-            case .driving: return "Driving"
-            case .walking: return "Walking"
-            case .cycling: return "Cycling"
-            case .transit: return "Transit"
-            }
-        }
-    }
-    
+    //  this leg's default when `dest` has no override of its own
+    var defaultTransportType: MKDirectionsTransportType
+
     @State private var eta: TimeInterval = 0
     @State private var distance: CLLocationDistance?
-    @State var transportMode: TransportMode = .driving
     @State var isLoading: Bool = false
-    
+
+    //  dest carries the override for "how we got here"; nil means it just
+    //  follows the day's default set in ETAHeaderView
+    private var isCustom: Bool { dest.preferredTransportType != nil }
+    private var effectiveType: MKDirectionsTransportType { dest.preferredTransportType ?? defaultTransportType }
+
     var body : some View {
         HStack(spacing: 12) {
             Divider()
-            
-            // Transport selector
+
+            // Transport selector — overrides this leg only, everything else keeps following the default
             Menu {
-                ForEach(TransportMode.allCases, id: \.self) { mode in
-                    Button(mode.label) { transportMode = mode }
+                ForEach(legTransportChoices, id: \.rawValue) { mode in
+                    Button {
+                        dest.preferredTransportType = mode
+                    } label: {
+                        Label(legTransportLabel(for: mode), systemImage: symbolName(for: mode))
+                    }
+                }
+                if isCustom {
+                    Divider()
+                    Button("Reset to Default", role: .destructive) {
+                        dest.preferredTransportType = nil
+                    }
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Text(transportMode.label)
+                    Text(legTransportLabel(for: effectiveType))
+                    if isCustom {
+                        Text("Custom")
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.15), in: Capsule())
+                    }
                     Image(systemName: "chevron.down").font(.caption2)
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isCustom ? Color.accentColor : .secondary)
             }
 
             Text("·").foregroundStyle(.tertiary)
@@ -148,7 +142,7 @@ struct NavigationView : View {
             Button {
                 let sourceItem = makeMKMapItem(from: source)
                 let destItem = makeMKMapItem(from: dest)
-                launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: transportMode.mkType)
+                launchNativeAppleMaps(from: sourceItem, to: destItem, transport_type: effectiveType)
             } label: {
                 VStack(spacing: 5) {
                     Image(systemName: "app.connected.to.app.below.fill")
@@ -161,44 +155,45 @@ struct NavigationView : View {
         .font(.system(size: 15, weight: .medium))
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .task(id: transportMode) {
+        .task(id: effectiveType) {
             await loadETA()
         }
     }
-    
+
     private func loadETA() async {
         isLoading = true
         let value = await getETA(
             from: source,
             to: dest,
-            transport_type: transportMode.mkType
+            transport_type: effectiveType
         )
-        
+
         let dist = await getDistance(
             from: source,
             to: dest,
-            transport_type: transportMode.mkType,
+            transport_type: effectiveType,
             time_interval: 0.0
         )
-        
+
         // getETA 可能需要保證回傳值
         await MainActor.run {
             self.eta = value
             distance = dist
             isLoading = false
         }
-        
-        
+
+
     }
 }
 
 #Preview {
     let stop1 = Stop(name: "Location 1", latitude: 25.0330, longitude: 121.5654, address: "1448 1/2 W 28th St, Los Angeles, CA 90007")
     let stop2 = Stop(name: "Location 2", latitude: 12.213, longitude: 123.134, address: "1351 W 37th St, Los Angeles, CA 90007")
-    let stops = [stop1, stop2]
-    SegmentView(stops: stops)
-        .modelContainer(for: [Stop.self, Trip.self], inMemory: true)
-//    LocationCardView(stop: stop1)
-//        .modelContainer(for: [Stop.self, Trip.self], inMemory: true)
+    return VStack {
+        LocationCardView(stop: stop1, transportType: .automobile)
+        NavigationView(source: stop1, dest: stop2, defaultTransportType: .automobile)
+        LocationCardView(stop: stop2, transportType: .automobile)
+    }
+    .modelContainer(for: [Stop.self, Trip.self], inMemory: true)
 }
 

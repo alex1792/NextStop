@@ -17,19 +17,3 @@ func getETA(from source: Stop, to dest: Stop, transport_type transportType: MKDi
     }
     return 0
 }
-
-func getETAs(from stops: [Stop], transport_type transportType: MKDirectionsTransportType) async -> TimeInterval {
-    var eta: TimeInterval = 0
-    for i in 1..<stops.count {
-        let MKDInstance = getMKDirectionsRequest(from: stops[i - 1], to: stops[i], transport_type: transportType, time_interval: eta)
-        
-        do {
-            let seg_eta = try await MKDInstance.calculateETA().expectedTravelTime
-            eta += seg_eta
-            print("Segment ETA: \(seg_eta)")
-        } catch {
-            print("MKDirections Request failed: \(error)")
-        }
-    }
-    return eta
-}
